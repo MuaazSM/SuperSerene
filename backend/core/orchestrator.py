@@ -1,0 +1,1208 @@
+"""
+Multi-agent orchestration for agentic RAG emotional wellness system.
+Uses LangGraph-compatible pattern with distinct agents for ingestion, retrieval, insight, sentiment, and crisis.
+"""
+
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone, timedelta
+import asyncio
+import ast
+import os
+import tempfile
+
+from logger.custom_logger import CustomLogger
+from rag.rag_pipeline import ConversationalRAG
+from utils.web_search import WebSearch
+from core.journal_analyzer import analyze_entry
+from core.safety_checker import classify_risk, escalation_message
+from core.coach import coach_question
+from db.mongo import get_mongo
+from utils.model_loader import ModelLoader
+
+try:
+    from langchain_community.document_loaders import WebBaseLoader, YoutubeLoader
+    from langchain_text_splitters import (
+        RecursiveCharacterTextSplitter,
+        HTMLHeaderTextSplitter,
+        MarkdownHeaderTextSplitter,
+    )
+    from langchain_community.retrievers import BM25Retriever
+    from langchain_core.documents import Document
+    _LOADERS_AVAILABLE = True
+except ImportError:
+    _LOADERS_AVAILABLE = False
+    Document = None
+
+_LOG = CustomLogger().get_logger(__name__)
+
+
+class DataAgent:
+    """Ingestion & indexing: crawl web, accept uploads, chunk, embed, index."""
+    
+    def __init__(self):
+        self.log = CustomLogger().get_logger(__name__)
+        self.web_search = WebSearch()
+    
+    def ingest(
+        self,
+        urls: List[str] = None,
+        files: List[bytes] = None,
+        youtube_ids: List[str] = None,
+        user_id: str = "system"
+    ) -> Dict[str, Any]:
+        """
+        Ingest from multiple sources and index into FAISS.
+        Returns: {docs_indexed: int, sources: list}
+        """
+        urls = urls or []
+        files = files or []
+        youtube_ids = youtube_ids or []
+        
+        sources = []
+        all_documents = []
+        
+        # Web URLs with real loaders
+        if urls and _LOADERS_AVAILABLE:
+            for url in urls:
+                try:
+                    loader = WebBaseLoader(url)
+                    docs = loader.load()
+                    for doc in docs:
+                        doc.metadata.update({
+                            "source_type": "url",
+                            "source": url,
+                            "title": doc.metadata.get("title", url),
+                            "user_id": user_id
+                        })
+                    all_documents.extend(docs)
+                    sources.append({"type": "url", "source": url, "status": "indexed", "count": len(docs)})
+                    self.log.info("URL ingested", url=url, docs=len(docs))
+                except Exception as e:
+                    sources.append({"type": "url", "source": url, "status": "failed", "error": str(e)})
+                    self.log.error("URL ingestion failed", url=url, error=str(e))
+        
+        # YouTube transcripts with real loaders
+        if youtube_ids and _LOADERS_AVAILABLE:
+            for yt_id in youtube_ids:
+                try:
+                    # Format: https://www.youtube.com/watch?v=VIDEO_ID
+                    video_url = f"https://www.youtube.com/watch?v={yt_id}"
+                    loader = YoutubeLoader.from_youtube_url(video_url, add_video_info=True)
+                    docs = loader.load()
+                    for doc in docs:
+                        doc.metadata.update({
+                            "source_type": "youtube",
+                            "source": yt_id,
+                            "title": doc.metadata.get("title", f"YouTube: {yt_id}"),
+                            "user_id": user_id
+                        })
+                    all_documents.extend(docs)
+                    sources.append({"type": "youtube", "source": yt_id, "status": "indexed", "count": len(docs)})
+                    self.log.info("YouTube ingested", yt_id=yt_id, docs=len(docs))
+                except Exception as e:
+                    sources.append({"type": "youtube", "source": yt_id, "status": "failed", "error": str(e)})
+                    self.log.error("YouTube ingestion failed", yt_id=yt_id, error=str(e))
+        
+        # Chunk and index documents if any loaded
+        docs_indexed = 0
+        if all_documents:
+            try:
+                # Helper: detect content type
+                def _is_html(text: str) -> bool:
+                    t = text.lower()
+                    return ("<html" in t) or ("<h1" in t) or ("<p" in t)
+
+                def _is_markdown(text: str) -> bool:
+                    return ("\n#" in text) or text.strip().startswith("#") or ("\n## " in text)
+
+                def _infer_tags(text: str) -> List[str]:
+                    tags = [
+                        "anxiety", "grief", "stress", "depression", "mindfulness",
+                        "breathing", "sleep", "anger", "sadness", "coping", "resilience"
+                    ]
+                    lower = text.lower()
+                    return [t for t in tags if t in lower]
+
+                def _compute_reading_level(text: str) -> str:
+                    import re
+                    sentences = [s for s in re.split(r"[.!?]+", text) if s.strip()]
+                    words = [w for w in re.findall(r"\b\w+\b", text)]
+                    avg_len = (len(words) / max(1, len(sentences))) if sentences else len(words)
+                    if avg_len < 12:
+                        return "basic"
+                    elif avg_len <= 20:
+                        return "intermediate"
+                    return "advanced"
+
+                # Default splitter
+                default_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=int(os.getenv("MAX_CHUNK_TOKENS", "800")),
+                    chunk_overlap=200
+                )
+
+                chunks = []
+                for doc in all_documents:
+                    content = doc.page_content or ""
+                    base_meta = dict(doc.metadata or {})
+                    # Apply heading-aware splitters when possible
+                    doc_chunks = []
+                    try:
+                        if _is_html(content) and 'HTMLHeaderTextSplitter' in globals():
+                            html_splitter = HTMLHeaderTextSplitter(
+                                headers_to_split_on=[
+                                    ("h1", "H1"), ("h2", "H2"), ("h3", "H3")
+                                ]
+                            )
+                            doc_chunks = html_splitter.split_text(content)
+                        elif _is_markdown(content) and 'MarkdownHeaderTextSplitter' in globals():
+                            md_splitter = MarkdownHeaderTextSplitter(
+                                headers_to_split_on=[
+                                    ("#", "H1"), ("##", "H2"), ("###", "H3")
+                                ]
+                            )
+                            doc_chunks = md_splitter.split_text(content)
+                        else:
+                            doc_chunks = default_splitter.split_documents([doc])
+                    except Exception:
+                        doc_chunks = default_splitter.split_documents([doc])
+
+                    # Enrich metadata for each chunk
+                    for c in doc_chunks:
+                        cm = dict(base_meta)
+                        cm.update(c.metadata or {})
+                        section_parts = [cm.get(k) for k in ["H1", "H2", "H3"] if cm.get(k)]
+                        section = " > ".join(section_parts) if section_parts else ""
+                        cm.update({
+                            "section": section,
+                            "tags": _infer_tags(c.page_content),
+                            "reading_level": _compute_reading_level(c.page_content),
+                        })
+                        chunks.append(Document(page_content=c.page_content, metadata=cm))
+                
+                # Index into FAISS (using existing RAG pipeline)
+                from rag.rag_pipeline import SingleDocumentIngestor
+                ingestor = SingleDocumentIngestor()
+                
+                # Save chunks to temp files for ingestion
+                temp_paths = []
+                for i, chunk in enumerate(chunks):
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                        f.write(chunk.page_content)
+                        # Store metadata in filename for retrieval
+                        f.write(f"\n\n__METADATA__: {chunk.metadata}")
+                        temp_paths.append(f.name)
+                
+                # Ingest and clean up
+                retriever = ingestor.ingest_files(temp_paths)
+                for path in temp_paths:
+                    os.unlink(path)
+                
+                docs_indexed = len(chunks)
+                self.log.info("Documents indexed to FAISS", chunks=docs_indexed)
+                
+            except Exception as e:
+                self.log.error("Document indexing failed", error=str(e))
+        
+        # Files handled via existing /rag/ingest endpoint in app.py
+        if not _LOADERS_AVAILABLE and (urls or youtube_ids):
+            self.log.warning("Document loaders not available; install langchain-community")
+        
+        return {"docs_indexed": docs_indexed, "sources": sources}
+
+
+class ContextAgent:
+    """Retrieval & reasoning: hybrid search (BM25 + vector) with citations."""
+    
+    def __init__(self):
+        self.log = CustomLogger().get_logger(__name__)
+        self.rag = ConversationalRAG(faiss_dir="rag/vectorstore")
+        self.vector_retriever = None
+        self.bm25_retriever = None
+        self.corpus_docs = []  # In-memory corpus for BM25
+        self._cross_encoder = None  # Cache cross-encoder model
+        self.web_search = WebSearch()
+        try:
+            self.vector_retriever = self.rag.load_retriever_from_faiss()
+            self.log.info("FAISS vector retriever loaded")
+        except Exception as e:
+            self.log.warning("FAISS retriever unavailable; will use fallback", error=str(e))
+        # Initialize BM25 with corpus if available
+        if _LOADERS_AVAILABLE:
+            try:
+                self._load_bm25_corpus()
+            except Exception as e:
+                self.log.warning("BM25 retriever initialization failed", error=str(e))
+
+    # LLM-based reranking removed: too slow (N separate LLM calls).
+    # Cross-encoder or vector-order is used instead.
+    
+    def _load_bm25_corpus(self):
+        """Load or build BM25 corpus from indexed documents."""
+        # In production, load from persistent storage
+        # For now, use FAISS store as source
+        try:
+            if self.vector_retriever and _LOADERS_AVAILABLE:
+                # Get sample docs to build BM25 index
+                sample_query = "wellness emotional health"
+                results = self.rag.search(self.vector_retriever, sample_query, k=50)
+                self.corpus_docs = [
+                    Document(
+                        page_content=text,
+                        metadata={"source": "faiss_corpus", "index": i}
+                    ) for i, text in enumerate(results)
+                ]
+                if self.corpus_docs:
+                    self.bm25_retriever = BM25Retriever.from_documents(self.corpus_docs)
+                    self.bm25_retriever.k = 3  # Top-k for BM25
+                    self.log.info("BM25 retriever initialized", corpus_size=len(self.corpus_docs))
+        except Exception as e:
+            self.log.warning("BM25 corpus load failed", error=str(e))
+
+    def retrieve(
+        self,
+        query: str,
+        session_id: str,
+        k: int = None,
+        adaptive: bool = True,
+        use_hybrid: bool = True,
+        use_reranker: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Hybrid retrieval (BM25 + vector) with optional reranking.
+        Args:
+            query: Search query
+            session_id: Session context
+            k: Number of results to return
+            adaptive: Whether to adaptively increase k on low confidence
+            use_hybrid: Use hybrid BM25+vector vs vector-only
+            use_reranker: Apply reranking (cross-encoder or LLM)
+        Returns: {passages: list[str], citations: list[dict], confidence: float, method: str}
+        """
+        k = k or int(os.getenv("RAG_TOP_K", "6"))
+        passages: List[str] = []
+        citations: List[Dict[str, Any]] = []
+        confidence = 0.5
+        method = "fallback"
+        # Try hybrid retrieval first
+        if use_hybrid and self.vector_retriever and self.bm25_retriever and _LOADERS_AVAILABLE:
+            try:
+                # Get results from both retrievers
+                vector_chunks = self.rag.search(self.vector_retriever, query, k=max(10, k * 2))
+                bm25_docs = (
+                    self.bm25_retriever.get_relevant_documents(query)
+                    if hasattr(self.bm25_retriever, "get_relevant_documents")
+                    else self.bm25_retriever.invoke(query)
+                )
+                bm25_chunks = [doc.page_content for doc in bm25_docs]
+                # Merge and deduplicate
+                seen = set()
+                for chunk in vector_chunks + bm25_chunks:
+                    chunk_key = chunk[:100]
+                    if chunk_key not in seen:
+                        passages.append(chunk)
+                        seen.add(chunk_key)
+                # Apply reranking if requested and we have multiple passages
+                if use_reranker and len(passages) > 1:
+                    try:
+                        from sentence_transformers import CrossEncoder
+                        if self._cross_encoder is None:
+                            self._cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+                            self.log.info("Cross-encoder model loaded and cached")
+                        top_n = min(20, len(passages))
+                        pairs = [(query, p) for p in passages[:top_n]]
+                        scores = self._cross_encoder.predict(pairs)
+                        scored = list(zip(passages[:top_n], scores))
+                        scored.sort(key=lambda x: x[1], reverse=True)
+                        reranked_passages = [p for p, s in scored] + passages[top_n:]
+                        passages = reranked_passages[:k]
+                        method = "hybrid_bm25_vector_reranked_ce"
+                        self.log.info(
+                            "Cross-encoder reranking successful",
+                            top_n=top_n,
+                            final_k=len(passages),
+                            top_score=scores.max() if hasattr(scores, 'max') else max(scores) if scores else 0
+                        )
+                    except ImportError:
+                        self.log.warning("sentence-transformers not installed; skipping reranking")
+                        passages = passages[:k]
+                        method = "hybrid_bm25_vector"
+                    except Exception as e:
+                        self.log.warning("Reranker failed; using original order", error=str(e))
+                        passages = passages[:k]
+                        method = "hybrid_bm25_vector"
+                else:
+                    passages = passages[:k]
+                    method = "hybrid_bm25_vector"
+                # Generate citations with metadata
+                for i, chunk in enumerate(passages):
+                    metadata = self._extract_metadata(chunk)
+                    citations.append({
+                        "source_id": metadata.get("source", f"doc_{i}"),
+                        "url": metadata.get("url", f"internal://doc_{i}"),
+                        "title": metadata.get("title", f"Document {i}"),
+                        "start": 0,
+                        "end": min(100, len(chunk)),
+                        "snippet": chunk[:100]
+                    })
+                confidence = min(1.0, len(passages) / k) if passages else 0.0
+                self.log.info("Hybrid retrieval complete", method=method, results=len(passages), confidence=confidence)
+            except Exception as e:
+                self.log.error("Hybrid retrieval failed; falling back to vector-only", error=str(e))
+        # Fallback to vector-only
+        if not passages and self.vector_retriever:
+            try:
+                chunks = self.rag.search(self.vector_retriever, query, k=k)
+                passages = chunks
+                # Generate citations
+                for i, chunk in enumerate(chunks):
+                    metadata = self._extract_metadata(chunk)
+                    citations.append({
+                        "source_id": metadata.get("source", f"doc_{i}"),
+                        "url": metadata.get("url", f"internal://doc_{i}"),
+                        "title": metadata.get("title", f"Document {i}"),
+                        "start": 0,
+                        "end": min(100, len(chunk)),
+                        "snippet": chunk[:100]
+                    })
+                confidence = min(1.0, len(chunks) / k) if chunks else 0.0
+                method = "vector_only"
+            except Exception as e:
+                self.log.error("Vector retrieval failed", error=str(e))
+
+        # Tavily/web fallback or booster when confidence is low
+        if (not passages or confidence < 0.4) and self.web_search:
+            web_results = self.web_search.search(query, max_results=max(3, min(5, k)))
+            if web_results:
+                for item in web_results:
+                    snippet = (item.get("content") or "")[:500]
+                    if not snippet:
+                        continue
+                    passages.append(snippet)
+                    citations.append({
+                        "source_id": item.get("url") or item.get("title") or "web",
+                        "url": item.get("url") or "",
+                        "title": item.get("title") or "Web result",
+                        "start": 0,
+                        "end": min(100, len(snippet)),
+                        "snippet": snippet[:100]
+                    })
+                method = "tavily_web" if method == "fallback" else f"{method}_tavily_boost"
+                confidence = max(confidence, 0.5 if passages else confidence)
+                self.log.info("Web search injected context", results=len(web_results), method=method)
+        # Adaptive depth: if confidence low, expand search
+        if adaptive and confidence < 0.4 and k < 12:
+            self.log.info("Low confidence; expanding search depth", current_k=k, new_k=min(12, k * 2))
+            return self.retrieve(query, session_id, k=min(12, k * 2), adaptive=False, use_hybrid=use_hybrid, use_reranker=use_reranker)
+        return {
+            "passages": passages,
+            "citations": citations,
+            "confidence": confidence,
+            "method": method
+        }
+    
+    def _extract_metadata(self, chunk: str) -> Dict[str, Any]:
+        """Extract metadata from chunk text if embedded."""
+        if "__METADATA__:" in chunk:
+            try:
+                parts = chunk.split("__METADATA__:")
+                if len(parts) > 1:
+                    import json
+                    metadata_str = parts[1].strip()
+                    return ast.literal_eval(metadata_str)
+            except Exception:
+                pass
+        
+        return {"source": "unknown", "url": "internal://unknown", "title": "Unknown Document"}
+
+
+class InsightAgent:
+    """Generation & coaching: personalized tasks with EQ ontology."""
+    
+    def __init__(self):
+        self.log = CustomLogger().get_logger(__name__)
+        self.llm = None
+        try:
+            self.llm = ModelLoader().load_llm()
+            self.log.info("InsightAgent LLM loaded", llm_type=type(self.llm).__name__)
+        except Exception as e:
+            self.log.warning("LLM unavailable; using fallback", error=str(e))
+    
+    def _generate_contextual_fallback(self, message: str, facet: str = "") -> str:
+        """Generate a message-specific response when LLM fails."""
+        msg_lower = message.lower().strip()
+
+        if any(w in msg_lower for w in ["hello", "hi", "hey"]):
+            return (
+                "Welcome! I'm Ra, your wellness companion. "
+                "What's been on your mind today—anything weighing on you, "
+                "or something you'd like to explore together?"
+            )
+        if any(w in msg_lower for w in ["not much", "nothing", "idk", "dunno", "don't know"]):
+            return (
+                "That's completely okay. Sometimes just showing up is the first step. "
+                "If you had to name one feeling about today in a single word, what would it be?"
+            )
+        if any(w in msg_lower for w in ["sad", "down", "low", "depressed", "unhappy"]):
+            return (
+                "It sounds like you're carrying something heavy right now—that takes courage to name. "
+                "Can you walk me through what happened today that brought this feeling to the surface? "
+                "Even a small detail can help us find what matters most."
+            )
+        if any(w in msg_lower for w in ["angry", "frustrated", "annoyed", "mad", "pissed", "fuck"]):
+            return (
+                "Frustration usually points to something that matters deeply to you—a crossed boundary "
+                "or an unmet need. Before the anger spiked, what was the very first thing you noticed "
+                "in your body or thoughts?"
+            )
+        if any(w in msg_lower for w in ["tired", "exhausted", "drained"]):
+            return (
+                "Exhaustion touches everything—mood, patience, clarity. "
+                "Have you been able to rest at all today? And if not, what's been keeping you going?"
+            )
+        if any(w in msg_lower for w in ["anxious", "worried", "nervous", "stress", "overwhelmed"]):
+            return (
+                "Anxiety can feel like juggling too many things at once. "
+                "Let's slow down: out of everything swirling right now, "
+                "which single thing feels most urgent or most within your control?"
+            )
+        if any(w in msg_lower for w in ["don't feel", "disconnected", "lost", "numb", "empty"]):
+            return (
+                "Feeling disconnected is more common than people talk about, "
+                "and it doesn't mean something is wrong with you. "
+                "When was the last time you felt truly like yourself, even briefly?"
+            )
+        if any(w in msg_lower for w in ["happy", "good", "great", "grateful", "thankful", "better"]):
+            return (
+                "That's wonderful to hear! Positive moments are worth savouring. "
+                "What do you think contributed most to this feeling? "
+                "Noticing that can help you recreate it on harder days."
+            )
+
+        # Facet-aware fallback for longer messages
+        facet_hooks = {
+            "self_regulation": "What was the earliest signal in your body before the feeling peaked?",
+            "self_awareness": "Which emotion showed up first, and what do you think triggered it?",
+            "empathy": "What might the other person be feeling or needing in this situation?",
+            "social_skills": "What outcome would feel best for you in the next conversation about this?",
+            "motivation": "What's one small thing you could do in the next five minutes toward your goal?",
+        }
+        question = facet_hooks.get(facet, "What part of this feels most pressing to you right now?")
+        snippet = message[:80].strip() if message else "that"
+        return f"Thank you for sharing about '{snippet}'. {question}"
+    
+    def _is_generic_response(self, text: str) -> bool:
+        """Check if response is one of the forbidden generic phrases."""
+        if not text:
+            return True
+        # Normalize apostrophes and quotes for comparison
+        text_lower = text.lower().strip().replace("'", "'").replace("'", "'").replace('"', '"').replace('"', '"')
+        generic_patterns = [
+            "i'm here to support you",
+            "i am here to support you",
+            "what's on your mind",
+            "what is on your mind",
+            "can you tell me more",
+            "would you like to explore",
+            "what feels most important",
+            "here to help",
+            "how can i support",
+            "how can i help",
+        ]
+        return any(p in text_lower for p in generic_patterns)
+    
+    def coach(
+        self,
+        message: str,
+        context: List[str],
+        session_id: str,
+        facet: str = "self_awareness"
+    ) -> Dict[str, Any]:
+        """
+        Generate coaching response with tasks and citations.
+        Returns: {text: str, tasks: list, citations: list, why: str}
+        """
+        self.log.info("InsightAgent.coach called", message_preview=message[:50], context_count=len(context), has_llm=bool(self.llm))
+        
+        text = ""
+        
+        # Build context from retrieved passages — use more content for grounding
+        context_block = ""
+        if context:
+            context_block = "\n---\n".join([c[:600] for c in context[:5]])
+        
+        # Try LLM-based response
+        if self.llm:
+            try:
+                from langchain_core.messages import SystemMessage, HumanMessage
+                
+                system_prompt = (
+                    "You are Ra, a calm and empathetic emotional wellness coach. "
+                    "You combine warmth with practical insight.\n\n"
+                    "RESPONSE STRUCTURE (aim for 80-150 words):\n"
+                    "1. Acknowledge what the user shared — reflect a SPECIFIC detail they mentioned.\n"
+                    "2. Offer ONE concrete, actionable suggestion grounded in the context below "
+                    "(e.g., a breathing technique, a journaling prompt, a reframe, a micro-exercise).\n"
+                    "3. End with ONE open-ended reflective question that deepens self-awareness.\n\n"
+                    "STYLE GUIDELINES:\n"
+                    "- Be specific to the user's words; quote or paraphrase them.\n"
+                    "- Sound like a caring, knowledgeable friend — not a therapist reading a script.\n"
+                    "- If context provides relevant exercises or techniques, weave them in naturally.\n"
+                    "- Use short sentences and a conversational rhythm.\n"
+                    f"- Current focus facet: {facet}\n"
+                )
+                
+                user_prompt = f"User said: \"{message}\"\n"
+                if context_block:
+                    user_prompt += f"\nRelevant wellness knowledge:\n{context_block}\n"
+                user_prompt += "\nRespond as Ra:"
+                
+                llm_messages = [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt)
+                ]
+                
+                self.log.info("Invoking LLM for coach response")
+                resp = self.llm.invoke(llm_messages)
+                text = getattr(resp, "content", None) or str(resp)
+                text = text.strip()
+                self.log.info("LLM coach response", response_preview=text[:100] if text else "EMPTY")
+                
+            except Exception as e:
+                self.log.error("LLM invoke failed in coach", error=str(e))
+                text = ""
+        
+        # If LLM failed or returned empty, use contextual fallback
+        if not text or len(text) < 10:
+            self.log.warning("Using contextual fallback", reason="empty", original=text[:50] if text else "NONE")
+            text = self._generate_contextual_fallback(message, facet)
+        
+        # Build contextual tasks based on facet and message
+        tasks = self._contextual_tasks(message, facet)
+        
+        return {
+            "text": text,
+            "tasks": tasks,
+            "citations": [],
+            "why": f"Coaching response focused on {facet}"
+        }
+
+    def _contextual_tasks(self, message: str, facet: str) -> List[str]:
+        """Return 2 actionable micro-tasks relevant to the user's state and facet."""
+        msg_lower = message.lower()
+        
+        if any(w in msg_lower for w in ["anxious", "worried", "nervous", "stress", "overwhelmed", "panic"]):
+            return [
+                "Try box breathing: inhale 4s, hold 4s, exhale 4s, hold 4s — repeat 3 times",
+                "Name 3 things you can see right now to ground yourself in the present"
+            ]
+        if any(w in msg_lower for w in ["angry", "frustrated", "annoyed", "mad"]):
+            return [
+                "Place your hand on your chest and take 5 slow breaths — notice the heat dissipating",
+                "Write down exactly what you'd want to say, then set it aside for 10 minutes"
+            ]
+        if any(w in msg_lower for w in ["sad", "down", "low", "depressed", "crying"]):
+            return [
+                "Send a short message to someone you trust — even 'thinking of you' counts",
+                "Step outside for 2 minutes and look up at the sky; notice one thing that's beautiful"
+            ]
+        if any(w in msg_lower for w in ["tired", "exhausted", "drained", "burnout"]):
+            return [
+                "Set a timer for 10 minutes of guilt-free rest — eyes closed, no screens",
+                "Drink a full glass of water and stretch your neck and shoulders slowly"
+            ]
+        
+        facet_tasks = {
+            "self_awareness": [
+                "Pause and name the emotion you're feeling right now in one word",
+                "Notice where in your body you feel that emotion — chest, stomach, shoulders?"
+            ],
+            "self_regulation": [
+                "Try the 5-4-3-2-1 grounding: 5 things you see, 4 hear, 3 touch, 2 smell, 1 taste",
+                "Take 3 slow breaths and on each exhale let your shoulders drop"
+            ],
+            "empathy": [
+                "Think of the other person's perspective — what might they be feeling?",
+                "Write one sentence describing their experience without judgment"
+            ],
+            "social_skills": [
+                "Draft a message that starts with how you feel, not what the other person did",
+                "Think of one specific thing you appreciate about the person involved"
+            ],
+            "motivation": [
+                "Write down the smallest possible next step toward your goal",
+                "Set a 5-minute timer and just start — you can stop after 5 minutes"
+            ],
+        }
+        return facet_tasks.get(facet, [
+            "Take 3 slow, deep breaths and notice how your body feels",
+            "Write one sentence about what matters most to you right now"
+        ])
+
+    def weekly_review(
+        self,
+        session_id: str,
+        range_str: str = "last_7d"
+    ) -> Dict[str, Any]:
+        """
+        Weekly summary with goals and insights.
+        Returns: {summary: str, goals: list, insights: list, citations: list}
+        """
+        try:
+            mongo = get_mongo()
+            messages = mongo.get_session_messages(session_id=session_id, limit=100)
+            
+            # Aggregate mood trends
+            mood_values = [
+                m.get("metadata", {}).get("mood_index", 50)
+                for m in messages
+                if "mood_index" in m.get("metadata", {})
+            ]
+            
+            avg_mood = sum(mood_values) / len(mood_values) if mood_values else 50
+            trend = "improving" if avg_mood > 55 else "stable" if avg_mood > 45 else "declining"
+            
+            summary = f"Over the past week, your mood has been {trend} (avg: {avg_mood:.1f}/100). "
+            summary += f"You've engaged in {len(messages)} conversations, showing consistent reflection."
+            
+            goals = [
+                "Continue daily check-ins",
+                "Try one new coping strategy this week",
+                "Share a positive moment with someone you trust"
+            ]
+            
+            insights = [
+                f"Your most frequent emotion theme: reflection",
+                f"Strongest facet: self-awareness",
+                f"Growth opportunity: self-regulation practices"
+            ]
+            
+            return {
+                "summary": summary,
+                "goals": goals,
+                "insights": insights,
+                "citations": []
+            }
+            
+        except Exception as e:
+            self.log.error("Weekly review failed", error=str(e))
+            return {
+                "summary": "Unable to generate review at this time",
+                "goals": [],
+                "insights": [],
+                "citations": []
+            }
+
+
+class SentimentAgent:
+    """Sentiment & signal analysis with z-score tracking."""
+    
+    def __init__(self):
+        self.log = CustomLogger().get_logger(__name__)
+    
+    def analyze(
+        self,
+        text: str,
+        session_id: str,
+        user_id: str
+    ) -> Dict[str, Any]:
+        """
+        Analyze sentiment and compute z-score.
+        Returns: {sentiment: str, scores: dict, zscore: float, events: list}
+        """
+        try:
+            # Use existing journal analyzer with proper payload signature
+            analysis = analyze_entry({
+                "journal": text,
+                "mood": 5,
+                "context": {}
+            }, llm=None)
+            
+            # Compute z-score from recent history
+            mongo = get_mongo()
+            recent_msgs = mongo.get_recent_messages(user_id=user_id, days=30, limit=100)
+            mood_values = [
+                m.get("metadata", {}).get("mood_index", 50)
+                for m in recent_msgs
+                if "mood_index" in m.get("metadata", {})
+            ]
+            
+            current_mood = analysis.get("mood_index", 50)
+            
+            if len(mood_values) > 2:
+                mean = sum(mood_values) / len(mood_values)
+                variance = sum((x - mean) ** 2 for x in mood_values) / len(mood_values)
+                std_dev = variance ** 0.5
+                zscore = (current_mood - mean) / std_dev if std_dev > 0 else 0.0
+            else:
+                zscore = 0.0
+            
+            events = []
+            if abs(zscore) > 2.5:
+                events.append({
+                    "type": "mood_spike",
+                    "direction": "high" if zscore > 0 else "low",
+                    "magnitude": abs(zscore)
+                })
+            
+            return {
+                "sentiment": analysis.get("sentiment", "neutral"),
+                "scores": analysis.get("facet_signals", {}),
+                "zscore": zscore,
+                "events": events
+            }
+            
+        except Exception as e:
+            self.log.error("Sentiment analysis failed", error=str(e))
+            return {
+                "sentiment": "neutral",
+                "scores": {},
+                "zscore": 0.0,
+                "events": []
+            }
+
+
+class CrisisAgent:
+    """Crisis detection with alert dispatch."""
+    
+    def __init__(self):
+        self.log = CustomLogger().get_logger(__name__)
+        self.alert_cooldown = {}  # user_id -> last_alert_time
+    
+    def evaluate(
+        self,
+        session_id: str,
+        user_id: str,
+        latest_score: float,
+        text: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Evaluate crisis risk and trigger alerts.
+        Returns: {triggered: bool, action: str|None, alert_sent: bool}
+        """
+        triggered = False
+        action = None
+        alert_sent = False
+        
+        # Check z-score threshold
+        threshold = float(os.getenv("CRISIS_ZSCORE_THRESHOLD", "2.5"))
+        if abs(latest_score) > threshold:
+            triggered = True
+            action = "monitor"
+        
+        # Check safety keywords
+        if text:
+            safety = classify_risk(text, llm=None)
+            if safety.get("label") == "ESCALATE":
+                triggered = True
+                action = "alert"
+        
+        # Cooldown check
+        cooldown_hours = 24
+        now = datetime.now(timezone.utc)
+        last_alert = self.alert_cooldown.get(user_id)
+        
+        if action == "alert" and (not last_alert or (now - last_alert).total_seconds() > cooldown_hours * 3600):
+            try:
+                self._send_alerts(user_id, text)
+                alert_sent = True
+                self.alert_cooldown[user_id] = now
+                self.log.info("Crisis alert sent", user_id=user_id)
+            except Exception as e:
+                self.log.error("Alert dispatch failed", error=str(e))
+        
+        return {
+            "triggered": triggered,
+            "action": action,
+            "alert_sent": alert_sent
+        }
+    
+    def _send_alerts(self, user_id: str, context: str):
+        """Send SMS via Twilio and push via FCM."""
+        # Twilio SMS
+        try:
+            from twilio.rest import Client
+            account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+            auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+            from_number = os.getenv("TWILIO_FROM_NUMBER")
+            
+            if account_sid and auth_token and from_number:
+                client = Client(account_sid, auth_token)
+                # In production, get user's emergency contact from DB
+                to_number = os.getenv("EMERGENCY_CONTACT_NUMBER")
+                if to_number:
+                    message = client.messages.create(
+                        body=f"Alert: A user may need support. Please check in with them.",
+                        from_=from_number,
+                        to=to_number
+                    )
+                    self.log.info("SMS sent", sid=message.sid)
+        except Exception as e:
+            self.log.error("Twilio SMS failed", error=str(e))
+        
+        # FCM Push
+        try:
+            import requests
+            fcm_key = os.getenv("FCM_SERVER_KEY")
+            if fcm_key:
+                # In production, get user's FCM token from DB
+                token = os.getenv("USER_FCM_TOKEN")
+                if token:
+                    headers = {
+                        "Authorization": f"key={fcm_key}",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "to": token,
+                        "notification": {
+                            "title": "Support Alert",
+                            "body": "We're here if you need to talk. You matter."
+                        }
+                    }
+                    resp = requests.post(
+                        "https://fcm.googleapis.com/fcm/send",
+                        json=payload,
+                        headers=headers,
+                        timeout=5
+                    )
+                    self.log.info("FCM push sent", status=resp.status_code)
+        except Exception as e:
+            self.log.error("FCM push failed", error=str(e))
+
+
+class Orchestrator:
+    """Main orchestrator coordinating all agents."""
+    
+    def __init__(self):
+        self.data_agent = DataAgent()
+        self.context_agent = ContextAgent()
+        self.insight_agent = InsightAgent()
+        self.sentiment_agent = SentimentAgent()
+        self.crisis_agent = CrisisAgent()
+        self.log = CustomLogger().get_logger(__name__)
+        # Minimal session memory to avoid repeating the same reply text
+        self._last_reply: Dict[str, str] = {}
+
+    def _supportive_reply(self, message: str, sentiment: Dict[str, Any], facet: str, context_method: str) -> Dict[str, Any]:
+        """Supportive response when retrieval confidence is low — still personalized."""
+        feeling = sentiment.get("sentiment", "neutral")
+
+        # Build an empathetic opener referencing their words
+        snippet = message[:120].strip()
+        if feeling == "positive" or (isinstance(feeling, (int, float)) and feeling > 0.2):
+            opener = f"It sounds like there's something positive coming through in what you shared about '{snippet[:60]}'. Let's build on that energy."
+        elif feeling == "negative" or (isinstance(feeling, (int, float)) and feeling < -0.2):
+            opener = f"I can sense this feels heavy. Thank you for being honest about '{snippet[:60]}'—that takes real courage."
+        else:
+            opener = f"Thanks for sharing about '{snippet[:60]}'. Let's dig into what matters most here."
+
+        facet_guidance = {
+            "self_regulation": "When emotions run high, even one slow exhale can shift the trajectory. Try breathing in for 4 counts and out for 6.",
+            "self_awareness": "Naming what you feel is the first step to understanding it. Try putting the emotion into one concrete word.",
+            "empathy": "It might help to step into the other person's shoes for a moment—what might they be experiencing?",
+            "social_skills": "Think about what you'd want the other person to understand, and lead with that feeling rather than the situation.",
+            "motivation": "When inertia hits, the smallest action breaks it. What's one 5-minute thing you could do right now?",
+        }
+        guidance = facet_guidance.get(facet, "Let's focus on what feels most actionable for you right now.")
+
+        question = {
+            "self_regulation": "What's usually the first signal your body gives you when emotions start rising?",
+            "self_awareness": "If you had to describe your current state in one word, what would it be?",
+            "empathy": "What do you think the other person needs most right now?",
+            "social_skills": "What would a good outcome look like for everyone involved?",
+            "motivation": "What's the tiniest step that would make you feel even 1% better?",
+        }.get(facet, "What's the one thing that would help most in the next 10 minutes?")
+
+        text = f"{opener} {guidance} {question}"
+        tasks = self.insight_agent._contextual_tasks(message, facet)
+
+        return {
+            "text": text,
+            "tasks": tasks,
+            "citations": [],
+            "why": f"Supportive guidance (retrieval: {context_method}); focused on {facet}."
+        }
+
+
+    def _avoid_repeat(self, session_id: str, user_message: str, reply_text: str) -> str:
+        """Ensure we don't echo identical replies within the same session."""
+        text = (reply_text or "").strip()
+        last = self._last_reply.get(session_id, "").strip()
+
+        # Only intervene if text is empty or an exact duplicate of the previous reply
+        if not text:
+            self.log.info("_avoid_repeat: empty reply, using fallback")
+            text = self.insight_agent._generate_contextual_fallback(user_message)
+        elif text == last:
+            self.log.info("_avoid_repeat: exact duplicate of last reply, using fallback")
+            text = self.insight_agent._generate_contextual_fallback(user_message)
+
+        self._last_reply[session_id] = text
+        return text
+
+    async def process_message(
+        self,
+        message: str,
+        session_id: str,
+        user_id: str,
+        mode: str = "qa"
+    ) -> Dict[str, Any]:
+        """
+        Orchestrate agents for a user message.
+        Modes: qa, reflection, weekly
+
+        Runs sentiment analysis + context retrieval in parallel for speed.
+        """
+        try:
+            # Run sentiment + crisis check and context retrieval concurrently
+            # (they are independent of each other)
+            loop = asyncio.get_event_loop()
+
+            sentiment_future = loop.run_in_executor(
+                None,
+                lambda: self.sentiment_agent.analyze(message, session_id, user_id),
+            )
+            context_future = loop.run_in_executor(
+                None,
+                lambda: self.context_agent.retrieve(query=message, session_id=session_id),
+            )
+
+            sentiment, context = await asyncio.gather(sentiment_future, context_future)
+
+            # Crisis check (depends on sentiment z-score, so must be sequential)
+            crisis = await loop.run_in_executor(
+                None,
+                lambda: self.crisis_agent.evaluate(
+                    session_id=session_id,
+                    user_id=user_id,
+                    latest_score=sentiment["zscore"],
+                    text=message,
+                ),
+            )
+
+            # Generate response based on mode
+            if mode == "weekly":
+                response = self.insight_agent.weekly_review(session_id=session_id)
+            else:
+                facet = self._select_facet(sentiment["scores"])
+                if context["confidence"] < 0.4:
+                    response = self._supportive_reply(
+                        message=message,
+                        sentiment=sentiment,
+                        facet=facet,
+                        context_method=context.get("method", "low_confidence"),
+                    )
+                else:
+                    response = self.insight_agent.coach(
+                        message=message,
+                        context=context["passages"],
+                        session_id=session_id,
+                        facet=facet,
+                    )
+                    if context["citations"]:
+                        response["citations"] = context["citations"]
+
+            # Avoid repeating the exact same reply within a session
+            try:
+                current_text = (response or {}).get("text", "")
+                response["text"] = self._avoid_repeat(session_id, message, current_text)
+            except Exception as e:
+                self.log.warning("Failed dedupe guard", error=str(e))
+
+            return {
+                **response,
+                "sentiment": sentiment,
+                "crisis_check": crisis,
+            }
+
+        except Exception as e:
+            self.log.error("Orchestration failed", error=str(e))
+            snippet = message[:50].strip() if message else "something"
+            return {
+                "text": (
+                    f"Thanks for sharing about '{snippet}'. "
+                    "Let me think about this differently — what part of this "
+                    "situation feels most urgent to you right now?"
+                ),
+                "tasks": ["Take a slow breath", "Notice what you're feeling in your body"],
+                "citations": [],
+                "why": f"Error recovery: {str(e)[:50]}",
+                "sentiment": {},
+                "crisis_check": {"triggered": False},
+            }
+    
+    def _select_facet(self, signals: Dict[str, str]) -> str:
+        """Select facet needing attention from signals."""
+        # Prioritize growth areas (- signals)
+        for facet, signal in signals.items():
+            if signal == "-":
+                return facet
+        # Default to self_awareness
+        return "self_awareness"
+
+    async def process_entry(
+        self,
+        user_id: str,
+        text: str,
+        mood: int = 3,
+    ) -> Dict[str, Any]:
+        """Analyze a journal entry using the journal analyzer.
+
+        Args:
+            user_id: User identifier
+            text: Journal text
+            mood: Mood score (1-5)
+
+        Returns:
+            Dict with emotions, sentiment, cognitive_distortions, topics, facet_signals, one_line_insight
+        """
+        try:
+            llm = None
+            try:
+                llm = ModelLoader().load_llm()
+            except Exception as e:
+                self.log.warning("LLM unavailable for process_entry", error=str(e))
+
+            analysis = analyze_entry(
+                {
+                    "journal": text,
+                    "mood": mood,
+                    "context": {},
+                },
+                llm=llm,
+            )
+
+            # Attach minimal metadata
+            analysis.update({
+                "user_id": user_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            return analysis
+        except Exception as e:
+            self.log.error("process_entry failed", error=str(e))
+            raise
+
+    async def chat(
+        self,
+        user_id: str,
+        session_id: str,
+        message: str,
+        mode: str = "qa",
+    ) -> Dict[str, Any]:
+        """Handle chat message via multi-agent pipeline."""
+        try:
+            result = await self.process_message(
+                message=message,
+                session_id=session_id,
+                user_id=user_id,
+                mode=mode,
+            )
+            return result
+        except Exception as e:
+            self.log.error("chat orchestration failed", error=str(e))
+            snippet = message[:40].strip() if message else "that"
+            return {
+                "text": f"I heard you mention '{snippet}'. Something went wrong on my end, but your feelings matter. What's the most pressing thing for you right now?",
+                "tasks": ["Take a moment to breathe"],
+                "citations": [],
+                "why": f"Chat error recovery: {str(e)[:30]}",
+                "sentiment": {},
+                "crisis_check": {"triggered": False},
+            }
+
+    async def get_exercise_recommendations(
+        self,
+        user_id: str,
+        mood: int = 3,
+        context: str = "",
+        energy_level: int = 3,
+        count: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """Provide lightweight exercise recommendations.
+
+        This is a placeholder; in production this should call a dedicated recommendation model.
+        """
+        try:
+            templates = [
+                {
+                    "id": "box_breathing",
+                    "title": "Box Breathing",
+                    "steps": [
+                        "Inhale for 4 seconds",
+                        "Hold for 4 seconds",
+                        "Exhale for 4 seconds",
+                        "Hold for 4 seconds",
+                    ],
+                    "expected_outcome": "Reduce stress and improve focus",
+                    "followup_question": "How do you feel after a minute of box breathing?",
+                },
+                {
+                    "id": "gratitude_note",
+                    "title": "Gratitude Note",
+                    "steps": [
+                        "List one thing that went well today",
+                        "Write why it mattered to you",
+                        "Identify one person to share it with",
+                    ],
+                    "expected_outcome": "Shift attention to positive experiences",
+                    "followup_question": "What stood out as you wrote your gratitude note?",
+                },
+                {
+                    "id": "body_scan",
+                    "title": "2-min Body Scan",
+                    "steps": [
+                        "Close your eyes and notice sensations from head to toe",
+                        "Relax any tense areas on the exhale",
+                    ],
+                    "expected_outcome": "Increase somatic awareness and calm",
+                    "followup_question": "Where did you notice tension easing?",
+                },
+            ]
+
+            # Simple selection logic based on mood/energy
+            selected = templates[: max(1, min(count, len(templates)))]
+            return selected
+        except Exception as e:
+            self.log.error("Exercise recommendation failed", error=str(e))
+            return []
+
+    async def recommend_exercises(
+        self,
+        user_id: str,
+        context: str = "",
+        mood: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """Alias for get_exercise_recommendations for backward compatibility."""
+        return await self.get_exercise_recommendations(
+            user_id=user_id,
+            mood=mood,
+            context=context,
+        )
+
+    async def escalate_crisis(
+        self,
+        user_id: str,
+        event_id: str,
+        severity: int,
+        description: str,
+    ) -> Dict[str, Any]:
+        """Trigger crisis escalation via crisis agent."""
+        try:
+            self.crisis_agent._send_alerts(user_id=user_id, context=description)
+            return {"escalated": True, "event_id": event_id, "severity": severity}
+        except Exception as e:
+            self.log.error("Crisis escalation failed", error=str(e))
+            return {"escalated": False, "error": str(e)}
+
+    async def send_test_alert(
+        self,
+        user_id: str,
+        severity: int = 3,
+        message: str = "Test alert",
+    ) -> Dict[str, Any]:
+        """Send a test alert without persisting events."""
+        try:
+            self.crisis_agent._send_alerts(user_id=user_id, context=message)
+            return {"sent": True, "severity": severity}
+        except Exception as e:
+            self.log.error("Test alert failed", error=str(e))
+            return {"sent": False, "error": str(e)}
