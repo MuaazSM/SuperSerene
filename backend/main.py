@@ -110,6 +110,7 @@ def create_app() -> FastAPI:
     from routers.teletherapy import router as teletherapy_router
     from routers.analytics_dashboard import router as analytics_dashboard_router
     from routers.meditation import router as meditation_router
+    from routers.crisis import router as crisis_router
 
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(journal.router, prefix="/api/v1/journal", tags=["journal"])
@@ -125,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(teletherapy_router, prefix="/api/v1/teletherapy", tags=["teletherapy"])
     app.include_router(analytics_dashboard_router, prefix="/api/v1/analytics/dashboard", tags=["analytics-dashboard"])
     app.include_router(meditation_router, prefix="/api/v1/meditation", tags=["meditation"])
+    app.include_router(crisis_router, prefix="/api/v1/crisis", tags=["crisis"])
     app.include_router(collab.router)
 
     return app

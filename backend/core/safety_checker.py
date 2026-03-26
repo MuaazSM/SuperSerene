@@ -339,13 +339,27 @@ def classify_risk(
         session_id=session_id
     )
     
-    return {
+    # Attach language-aware crisis resources on escalation
+    crisis_resources = None
+    if label == "ESCALATE":
+        try:
+            from services.crisis_resources import get_resources_for_escalation
+            crisis_resources = get_resources_for_escalation(
+                user_id=user_id, text=text
+            )
+        except Exception as e:
+            _LOG.warning("Failed to attach crisis resources", error=str(e))
+
+    result = {
         "label": label,
         "risk_score": risk_score,
         "risk_band": risk_band,
         "signals": signals,
-        "policy_message": policy_message
+        "policy_message": policy_message,
     }
+    if crisis_resources:
+        result["crisis_resources"] = crisis_resources
+    return result
 
 
 def escalation_message(locale: str = "en") -> str:

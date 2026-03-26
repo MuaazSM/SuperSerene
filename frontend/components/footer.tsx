@@ -41,6 +41,8 @@ function Footer() {
         <div className="flex flex-col gap-4 border-t border-white/10 pt-6 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
           <div>&copy; {new Date().getFullYear()} SuperSerene. All rights reserved.</div>
           <div className="flex flex-wrap items-center gap-4 text-gray-400">
+            <Link href="/crisis-resources" className="hover:text-white">Crisis Resources</Link>
+            <span className="h-1 w-1 rounded-full bg-gray-600" aria-hidden="true" />
             <Link href="#" className="hover:text-white">Privacy</Link>
             <span className="h-1 w-1 rounded-full bg-gray-600" aria-hidden="true" />
             <Link href="#" className="hover:text-white">Terms</Link>
