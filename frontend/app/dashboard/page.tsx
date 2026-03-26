@@ -1,4 +1,8 @@
-import { IconArrowUpRight, IconCalendarTime, IconFlame, IconSparkles, IconTargetArrow } from "@tabler/icons-react"
+"use client";
+
+import { useEffect, useState } from "react"
+import { IconArrowUpRight, IconCalendarTime, IconFlame, IconSparkles, IconTargetArrow, IconAlertTriangle } from "@tabler/icons-react"
+import Link from "next/link"
 
 import { ChartAreaInteractive } from "@/components/chart-area-interactive"
 import { SectionCards } from "@/components/section-cards"
@@ -40,11 +44,40 @@ const upcomingMoments = [
 ]
 
 export default function Page() {
+    const [showBanner, setShowBanner] = useState(false)
+
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem("phq_score")
+            if (stored) {
+                const parsed = JSON.parse(stored)
+                const band = parsed?.band
+                if (band === "orange" || band === "red") {
+                    setShowBanner(true)
+                }
+            }
+        } catch { /* */ }
+    }, [])
+
     return (
         <div className="relative isolate flex flex-1 flex-col overflow-hidden bg-gradient-to-b from-slate-50 via-white to-white dark:from-slate-950 dark:via-slate-950 dark:to-slate-900 overflow-y-hidden">
             <div className="pointer-events-none absolute inset-x-0 top-[-10%] h-64 bg-gradient-to-r from-indigo-200/40 via-sky-200/30 to-emerald-200/30 blur-3xl dark:from-indigo-500/10 dark:via-sky-400/5 dark:to-emerald-400/10" />
 
             <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 pb-12 pt-8 lg:px-8 lg:pt-10">
+                {showBanner && (
+                    <div className="mb-6 flex items-center gap-3 rounded-xl border border-orange-500/30 bg-orange-500/10 px-5 py-3 text-sm">
+                        <IconAlertTriangle className="h-5 w-5 shrink-0 text-orange-400" />
+                        <span className="flex-1 text-orange-200">
+                            Based on your assessment, we recommend speaking with a professional.
+                        </span>
+                        <Link
+                            href="/teletherapy"
+                            className="shrink-0 rounded-lg bg-orange-500 px-4 py-1.5 text-sm font-medium text-white hover:bg-orange-600 transition-colors"
+                        >
+                            Find a counselor &rarr;
+                        </Link>
+                    </div>
+                )}
                 <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                     <div className="flex flex-col gap-3">
                         <Badge variant="outline" className="w-fit border-primary/30 bg-primary/5 text-primary dark:border-primary/40 dark:bg-primary/10">
