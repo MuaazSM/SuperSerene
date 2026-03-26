@@ -221,7 +221,7 @@ const seedPosts: Post[] = [
 
 export default function CommunityTopics() {
     const [selectedTopic, setSelectedTopic] = useState<string>("mindfulness");
-    const [posts, setPosts] = useState<Post[]>(seedPosts);
+    const [posts, setPosts] = useState<Post[] | null>(null);
     const [sort, setSort] = useState<"top" | "new" | "rising">("top");
     const [query, setQuery] = useState("");
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -241,22 +241,26 @@ export default function CommunityTopics() {
             const raw = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
             if (raw) {
                 const parsed: Post[] = JSON.parse(raw);
-                if (Array.isArray(parsed)) {
+                if (Array.isArray(parsed) && parsed.length > 0) {
                     setPosts(parsed);
+                    return;
                 }
             }
-        } catch (e) {
-            // ignore parse errors, keep seedPosts
+        } catch {
+            // ignore parse errors
         }
+        // No stored data or parse failed — use seed posts
+        setPosts(seedPosts);
     }, []);
 
-    // Persist to localStorage when posts change
+    // Persist to localStorage when posts change (skip null = not yet loaded)
     React.useEffect(() => {
+        if (posts === null) return;
         try {
             if (typeof window !== "undefined") {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(posts));
             }
-        } catch (e) {
+        } catch {
             // ignore storage errors
         }
     }, [posts]);
@@ -267,6 +271,7 @@ export default function CommunityTopics() {
     }, [selectedTopic]);
 
     const filtered = useMemo(() => {
+        if (!posts) return [];
         let next = posts.filter((p) => p.topicId === selectedTopic);
         if (query.trim()) {
             const q = query.trim().toLowerCase();
@@ -286,7 +291,7 @@ export default function CommunityTopics() {
     }, [posts, selectedTopic, sort, query]);
 
     const vote = (id: string, delta: 1 | -1) => {
-        setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, votes: p.votes + delta } : p)));
+        setPosts((prev) => (prev ?? []).map((p) => (p.id === id ? { ...p, votes: p.votes + delta } : p)));
     };
 
     const handleCreatePost = () => {
@@ -306,7 +311,7 @@ export default function CommunityTopics() {
                 votes: 0,
                 comments: 0,
             };
-            setPosts((prev) => [item, ...prev]);
+            setPosts((prev) => [item, ...(prev ?? [])]);
             setIsPosting(false);
             setIsCreateOpen(false);
             setNewPost({ title: "", body: "", author: "you", topicId: selectedTopic });

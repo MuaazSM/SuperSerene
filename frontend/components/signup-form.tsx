@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Eye, EyeOff } from "lucide-react"
+import { apiClient } from "@/lib/api"
 
 const TAGLINE = "Your space. Your pace. Your emotions."
 
@@ -90,9 +91,9 @@ export function SignupForm({
       } else {
         const data = await response.json()
         
-        // Store auth token
+        // Store auth token and sync with API client
         if (typeof window !== "undefined") {
-          localStorage.setItem("auth_token", data.token)
+          apiClient.setToken(data.token)
           localStorage.setItem("user_id", data.user_id)
           localStorage.setItem("user_email", data.email)
           localStorage.setItem("user_name", data.name)

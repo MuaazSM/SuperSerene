@@ -94,7 +94,7 @@ class ApiClient {
   // Check-in questions with fallback
   async getCheckInQuestions() {
     try {
-      return await this.request('/analytics/checkin/questions');
+      return await this.request('/api/v1/analytics/checkin/questions');
     } catch {
       console.warn('Failed to get questions from backend, using fallback');
       return {
@@ -112,7 +112,7 @@ class ApiClient {
   // Submit check-in with fallback
   async submitCheckIn(data: Record<string, unknown>) {
     try {
-      return await this.request('/analytics/checkin', {
+      return await this.request('/api/v1/analytics/checkin', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -137,7 +137,7 @@ class ApiClient {
   // Journal analysis with fallback
   async analyzeJournalEntry(data: { journal: string; [key: string]: unknown }) {
     try {
-      return await this.request('/ai/analyze-entry', {
+      return await this.request('/api/v1/journal/analyze-entry', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -166,7 +166,7 @@ class ApiClient {
 
   // Journal analysis upload (multipart/form-data)
   async analyzeJournalEntryUpload(formData: FormData) {
-    const url = `${this.baseURL}/ai/analyze-entry-upload`;
+    const url = `${this.baseURL}/api/v1/journal/analyze-entry-upload`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 20000);
     try {
@@ -301,7 +301,7 @@ class ApiClient {
   // Other methods with basic error handling
   async getBaselineQuestions() {
     try {
-      return await this.request('/ai/get-baseline-questions');
+      return await this.request('/api/v1/rag/baseline-questions');
     } catch {
       return {
         questions: [
@@ -317,7 +317,7 @@ class ApiClient {
 
   async submitBaseline(data: Record<string, unknown>) {
     try {
-      return await this.request('/ai/score-baseline', {
+      return await this.request('/api/v1/rag/score-baseline', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -343,7 +343,7 @@ class ApiClient {
 
   async rewriteText(data: { text: string; [key: string]: unknown }) {
     try {
-      return await this.request('/collab/rewrite', {
+      return await this.request('/api/collab/rewrite', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -359,7 +359,7 @@ class ApiClient {
   // Minimal implementations for other methods
   async getMoodSeries(userId: string, days: number = 30) {
     try {
-      return await this.request(`/analytics/series?user_id=${userId}&days=${days}`);
+      return await this.request(`/api/v1/analytics/series?user_id=${userId}&days=${days}`);
     } catch {
       return { series: [], offline: true };
     }
@@ -367,7 +367,7 @@ class ApiClient {
 
   async getExercise(data: Record<string, unknown>) {
     try {
-      return await this.request('/ai/get-exercise', {
+      return await this.request('/api/v1/exercises/recommendations', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -388,7 +388,7 @@ class ApiClient {
 
   async safetyCheck(text: string) {
     try {
-      return await this.request('/ai/safety-check', {
+      return await this.request('/api/v1/safety/check', {
         method: 'POST',
         body: JSON.stringify({ text }),
       });

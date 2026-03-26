@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { apiClient } from "@/lib/api"
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
@@ -36,7 +37,7 @@ function AuthCallbackHandler() {
     const name = (payload["name"] as string) || ""
 
     if (typeof window !== "undefined") {
-      localStorage.setItem("auth_token", token)
+      apiClient.setToken(token)
       if (userId) localStorage.setItem("user_id", userId)
       if (email) localStorage.setItem("user_email", email)
       if (name) localStorage.setItem("user_name", name)

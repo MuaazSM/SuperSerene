@@ -39,7 +39,17 @@ interface StoredSession {
   updatedAt: string;
 }
 
-const USER_ID = 'user123';
+const getOrCreateUserId = (): string => {
+  if (typeof window === 'undefined') return 'anonymous';
+  const stored = localStorage.getItem('user_id');
+  if (stored) return stored;
+  const newId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem('user_id', newId);
+  return newId;
+};
+const USER_ID = getOrCreateUserId();
 const BOT_ID = 'bot';
 const SESSIONS_STORAGE_KEY = 'wellness_coach_sessions';
 
