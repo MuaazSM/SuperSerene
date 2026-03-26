@@ -45,6 +45,7 @@ const upcomingMoments = [
 
 export default function Page() {
     const [showBanner, setShowBanner] = useState(false)
+    const [showMeditationSuggestion, setShowMeditationSuggestion] = useState(false)
 
     useEffect(() => {
         try {
@@ -54,6 +55,8 @@ export default function Page() {
                 const band = parsed?.band
                 if (band === "orange" || band === "red") {
                     setShowBanner(true)
+                } else if (band === "green" || band === "yellow") {
+                    setShowMeditationSuggestion(true)
                 }
             }
         } catch { /* */ }
@@ -75,6 +78,20 @@ export default function Page() {
                             className="shrink-0 rounded-lg bg-orange-500 px-4 py-1.5 text-sm font-medium text-white hover:bg-orange-600 transition-colors"
                         >
                             Find a counselor &rarr;
+                        </Link>
+                    </div>
+                )}
+                {showMeditationSuggestion && !showBanner && (
+                    <div className="mb-6 flex items-center gap-3 rounded-xl border border-teal-500/30 bg-teal-500/10 px-5 py-3 text-sm">
+                        <IconSparkles className="h-5 w-5 shrink-0 text-teal-400" />
+                        <span className="flex-1 text-teal-200">
+                            Your mood is steady. Try a quick meditation to maintain it.
+                        </span>
+                        <Link
+                            href="/guidedmeditation/quick_calm"
+                            className="shrink-0 rounded-lg bg-teal-500 px-4 py-1.5 text-sm font-medium text-white hover:bg-teal-600 transition-colors"
+                        >
+                            5-min Quick Calm &rarr;
                         </Link>
                     </div>
                 )}
