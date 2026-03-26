@@ -174,7 +174,7 @@ export default function VoiceChatPage() {
         </div>
 
         {/* Transcript */}
-        <div className="border rounded-lg bg-card p-4 mb-6 min-h-64 max-h-96 overflow-y-auto">
+        <div className="border rounded-lg bg-card p-4 mb-6 w-full min-h-64 max-h-96 overflow-y-auto">
           {transcript.length === 0 ? (
             <div className="flex items-center justify-center h-full text-center text-muted-foreground">
               Start speaking to chat with your wellness coach
@@ -229,6 +229,7 @@ export default function VoiceChatPage() {
           <Button
             variant="outline"
             size="sm"
+            className="min-h-[44px] min-w-[44px]"
             onClick={() => setAutoPlay(!autoPlay)}
           >
             {autoPlay ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
@@ -236,6 +237,7 @@ export default function VoiceChatPage() {
           <Button
             variant="outline"
             size="sm"
+            className="min-h-[44px]"
             onClick={() => {
               setTranscript([]);
               setAudioUrl('');

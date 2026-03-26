@@ -377,7 +377,7 @@ export default function JournalPage() {
               placeholder="I had a challenging meeting with my team today. I felt frustrated when they disagreed with my proposal..."
               value={journalText}
               onChange={(e) => setJournalText(e.target.value)}
-              className="min-h-[150px] text-base"
+              className="min-h-[150px] w-full text-base"
             />
             
             {/* 2. RE-ADD THE HIDDEN INPUT FIELD */}
@@ -433,8 +433,8 @@ export default function JournalPage() {
                 // Updated variant/icons for voice note state
                 variant={isRecording ? "destructive" : (audioBlob ? "outline" : "outline")}
                 size="sm"
-                className="flex items-center gap-2"
-                disabled={!!audioBlob && !isRecording} 
+                className="flex items-center gap-2 min-h-[44px]"
+                disabled={!!audioBlob && !isRecording}
               >
                 {isRecording ? (
                   <>
@@ -457,7 +457,7 @@ export default function JournalPage() {
                 onClick={attachedImage ? clearImage : handlePhotoAttachment}
                 variant={attachedImage ? "outline" : "outline"}
                 size="sm"
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 min-h-[44px]"
               >
                 {attachedImage ? (
                   <>
@@ -475,7 +475,7 @@ export default function JournalPage() {
                 onClick={handleAnalyze}
                 // Updated disabled logic for analysis
                 disabled={(!journalText.trim() && !audioBlob && !attachedImage) || isAnalyzing}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 min-h-[44px]"
               >
                 <IconBrain className="h-4 w-4" />
                 {isAnalyzing ? "Analyzing..." : "Analyze"}
@@ -528,7 +528,7 @@ export default function JournalPage() {
                 </div>
 
                 {/* Sentiment & Focus */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <h4 className="font-medium flex items-center gap-2">
                       <IconChartBar className="h-4 w-4" />

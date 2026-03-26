@@ -479,15 +479,15 @@ if (selectedExercise && !isComplete) {
               
               {['box-breathing', 'perspective-taking', 'gratitude-practice'].includes(exercise.id) ? (
                 <Link href={`/exercise/${exercise.id}`}>
-                  <Button className="w-full flex items-center gap-2">
+                  <Button className="w-full min-h-[56px] flex items-center gap-2">
                     <IconPlayerPlay className="h-4 w-4" />
                     Start Exercise
                   </Button>
                 </Link>
               ) : (
-                <Button 
+                <Button
                   onClick={() => startExercise(exercise)}
-                  className="w-full flex items-center gap-2"
+                  className="w-full min-h-[56px] flex items-center gap-2"
                 >
                   <IconPlayerPlay className="h-4 w-4" />
                   Start Exercise

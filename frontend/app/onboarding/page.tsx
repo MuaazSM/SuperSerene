@@ -198,17 +198,19 @@ export default function Onboarding() {
                 <div className="w-full max-w-2xl space-y-8 text-center">
                     <p className="text-sm text-muted-foreground">Over the past 2 weeks, how often have you been bothered by this problem?</p>
 
-                    <TextGenerateEffect
-                        key={`phq-${phqIdx}`}
-                        words={PHQ_A_QUESTIONS[phqIdx]}
-                    />
+                    <div className="text-lg sm:text-xl md:text-2xl">
+                        <TextGenerateEffect
+                            key={`phq-${phqIdx}`}
+                            words={PHQ_A_QUESTIONS[phqIdx]}
+                        />
+                    </div>
 
                     <div className="flex flex-col gap-3 max-w-md mx-auto">
                         {PHQ_OPTIONS.map((opt) => (
                             <Button
                                 key={opt.value}
                                 variant={phqAnswers[phqIdx] === opt.value ? "default" : "outline"}
-                                className="justify-start text-left h-auto py-3 px-4"
+                                className="justify-start text-left h-auto min-h-[44px] py-3 px-4"
                                 onClick={() => selectPhq(opt.value)}
                             >
                                 <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium mr-3 ${phqAnswers[phqIdx] === opt.value ? "border-primary-foreground bg-primary-foreground/20 text-primary-foreground" : "border-muted-foreground/40"}`}>

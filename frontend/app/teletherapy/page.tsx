@@ -300,7 +300,7 @@ export default function TeletherapyPage() {
       {bookingProvider && (
         <div className="fixed inset-0 z-50 grid place-items-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeModal} />
-          <Card className="relative z-10 w-full max-w-md">
+          <Card className="relative z-10 w-[calc(100vw-2rem)] sm:max-w-md">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>

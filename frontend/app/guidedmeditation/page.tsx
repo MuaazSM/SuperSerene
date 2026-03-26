@@ -90,7 +90,7 @@ export default function GuidedMeditationPage() {
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-teal-400" /> Recommended for You
           </h2>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {recommended.map((m) => (
               <MeditationCard key={m.id} meditation={m} featured />
             ))}
@@ -107,7 +107,7 @@ export default function GuidedMeditationPage() {
             </Button>
           ))}
         </div>
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {(library[activeTab] || []).map((m) => (
             <MeditationCard key={m.id} meditation={m} />
           ))}

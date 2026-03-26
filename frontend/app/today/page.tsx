@@ -182,7 +182,7 @@ export default function Today() {
               {currentQuestion?.scale}
             </div>
 
-            <div className="flex justify-center mt-20 space-x-2">
+            <div className="flex flex-col sm:flex-row justify-center mt-20 space-y-2 sm:space-y-0 space-x-0 sm:space-x-2">
               {[1, 2, 3, 4, 5].map((value) => (
                 <Button
                   key={value}

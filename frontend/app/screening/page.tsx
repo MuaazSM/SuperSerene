@@ -376,7 +376,7 @@ export default function ScreeningPage() {
               <Button
                 key={opt.value}
                 variant={currentAnswer === opt.value ? "default" : "outline"}
-                className="justify-start text-left h-auto py-3 px-4"
+                className="justify-start text-left h-auto min-h-[44px] py-3 px-4"
                 onClick={() => selectAnswer(opt.value)}
               >
                 <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium mr-3 ${currentAnswer === opt.value ? "border-primary-foreground bg-primary-foreground/20 text-primary-foreground" : "border-muted-foreground/40"}`}>

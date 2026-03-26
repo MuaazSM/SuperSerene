@@ -206,7 +206,7 @@ export default function MeditationPlayer() {
     const strokeOffset = circumference * (1 - progress);
 
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center p-6 relative" style={{ background: "#0F1B2D" }}>
+      <div className="flex min-h-screen flex-col items-center justify-center p-6 pb-8 relative" style={{ background: "#0F1B2D" }}>
         {/* Back button */}
         <button
           onClick={() => { setPlaying(false); setPhase("pre"); setElapsed(0); }}
@@ -221,9 +221,9 @@ export default function MeditationPlayer() {
         </p>
 
         {/* Central area */}
-        <div className="relative flex items-center justify-center" style={{ width: 280, height: 280 }}>
+        <div className="relative flex items-center justify-center" style={{ width: 'min(280px, 80vw)', height: 'min(280px, 80vw)' }}>
           {/* Progress ring */}
-          <svg className="absolute inset-0" width={280} height={280}>
+          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 280 280">
             <circle cx={140} cy={140} r={120} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={4} />
             <circle
               cx={140} cy={140} r={120}

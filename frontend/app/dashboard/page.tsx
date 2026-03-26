@@ -109,7 +109,7 @@ export default function Page() {
                                 Track progress, act on the moments that matter, and keep your streak alive with a calm, confident rhythm.
                             </p>
                         </div>
-                        <div className="flex flex-wrap gap-3">
+                        <div className="flex flex-col sm:flex-row w-full sm:w-auto flex-wrap gap-3">
                             <Button size="lg" className="shadow-md shadow-primary/20">
                                 <IconTargetArrow className="size-4" />
                                 Start guided session
@@ -122,7 +122,7 @@ export default function Page() {
                         </div>
                     </div>
 
-                    <Card className="relative overflow-hidden lg:max-w-sm">
+                    <Card className="relative overflow-hidden w-full lg:max-w-sm">
                         <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-emerald-200/20 dark:from-primary/15 dark:to-emerald-400/10" />
                         <CardHeader className="relative">
                             <CardDescription>Consistency streak</CardDescription>

@@ -226,7 +226,7 @@ export default function MoodDashboard() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="h-[320px]">
+          <div className="h-[280px] sm:h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -243,7 +243,7 @@ export default function MoodDashboard() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
         {/* Facet breakdown */}
         <Card>
           <CardHeader className="pb-2">

@@ -239,7 +239,7 @@ function ResourceCard({ resource: r }: { resource: Resource }) {
             {r.phone_number && (
               <a
                 href={`tel:${r.phone_number.replace(/[^0-9+]/g, "")}`}
-                className="inline-flex items-center gap-2 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-500/20 transition"
+                className="inline-flex items-center gap-2 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-2 min-h-[44px] text-sm font-medium text-red-300 hover:bg-red-500/20 transition"
               >
                 <Phone className="h-4 w-4" /> {r.phone_number}
               </a>

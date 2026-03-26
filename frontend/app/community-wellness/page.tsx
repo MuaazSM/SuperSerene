@@ -400,11 +400,11 @@ export default function CommunityTopics() {
                                     <CardContent className="flex gap-4 px-4 py-6">
                                         {/* Votes column */}
                                         <div className="flex w-12 flex-col items-center justify-start rounded-md border bg-background/60 py-2">
-                                            <Button variant="ghost" size="icon" onClick={() => vote(post.id, 1)} aria-label="Upvote">
+                                            <Button variant="ghost" size="icon" className="min-w-[44px] min-h-[44px]" onClick={() => vote(post.id, 1)} aria-label="Upvote">
                                                 <IconArrowUp className="size-5" />
                                             </Button>
                                             <div className="text-sm font-semibold">{post.votes}</div>
-                                            <Button variant="ghost" size="icon" onClick={() => vote(post.id, -1)} aria-label="Downvote">
+                                            <Button variant="ghost" size="icon" className="min-w-[44px] min-h-[44px]" onClick={() => vote(post.id, -1)} aria-label="Downvote">
                                                 <IconArrowDown className="size-5" />
                                             </Button>
                                         </div>

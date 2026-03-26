@@ -146,7 +146,7 @@ export default function GuardianSettingsPage() {
               )}
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
                   <span className="text-muted-foreground">Name</span>
                   <p className="font-medium">{status.guardian_name || "—"}</p>

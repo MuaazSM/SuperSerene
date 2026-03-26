@@ -16,12 +16,12 @@ const pointsData: string[] = [
 function Learnmore() {
     return (
         <div className="relative min-h-screen w-full flex flex-col items-center justify-center p-4 antialiased">
-            <div className="max-w-6xl mx-auto px-8 w-full mt-24">
+            <div className="max-w-6xl mx-auto px-4 sm:px-8 w-full mt-24">
                 <TextGenerateEffect
                     words="The SuperSerene Solution"
                     duration={0.6}
                     filter={true}
-                    className='text-left text-4xl sm:text-5xl font-bold mb-8'
+                    className='text-left text-2xl sm:text-4xl lg:text-5xl font-bold mb-8'
                 />
                 <TextGenerateEffect
                     words="SuperSerene is a personalized emotional intelligence platform designed to empower individuals by helping them understand, track, and improve their emotional well-being. Unlike generic wellness apps, SuperSerene uses a dynamic and adaptive approach to assess a user's Emotional Quotient (EQ) levels and provide a deeply personalized experience. Through a series of intelligent daily check-ins and interactive journaling, the platform tracks emotional patterns over time, providing users with a visual and data-driven understanding of their emotional triggers and states. Our core innovation lies in a proprietary EQ assessment model that, combined with AI-powered analysis, generates a tailored curriculum of exercises and insights. These aren't one-size-fits-all suggestions; they are unique, actionable steps designed to improve an individual's self-awareness, emotional regulation, motivation, and interpersonal skills. SuperSerene is your personal guide to building a more resilient, empathetic, and emotionally intelligent self."

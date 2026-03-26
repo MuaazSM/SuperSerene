@@ -153,7 +153,7 @@ export default function VoiceRecorder({
             onClick={startRecording}
             disabled={isProcessing}
             size="lg"
-            className="rounded-full h-16 w-16 p-0"
+            className="rounded-full h-20 w-20 p-0"
           >
             <Mic className="h-7 w-7" />
           </Button>
@@ -162,7 +162,7 @@ export default function VoiceRecorder({
             onClick={stopRecording}
             variant="destructive"
             size="lg"
-            className="rounded-full h-16 w-16 p-0"
+            className="rounded-full h-20 w-20 p-0"
           >
             <Square className="h-5 w-5" />
           </Button>
