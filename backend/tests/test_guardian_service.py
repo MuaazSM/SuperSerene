@@ -116,4 +116,4 @@ class TestNotificationPrivacy:
 
         # But severity and recommended action SHOULD be present
         assert "High" in email_html or "Moderate" in email_html or "red" in email_html
-        assert "Guardian Alert" in mock_email.call_args[0][1]  # Subject
+        assert "SuperSerene Alert" in mock_email.call_args[0][1]  # Subject
