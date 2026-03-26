@@ -3,6 +3,7 @@ import sys
 import base64
 import io
 import json
+import time
 from typing import Any, Dict
 from dotenv import load_dotenv
 from utils.config_loader import load_config
@@ -23,6 +24,8 @@ class ModelLoader:
     _api_keys_cache: Dict[str, str] | None = None
     _embeddings_cache = None
     _llm_cache = None
+    _llm_cache_time: float = 0.0
+    _LLM_CACHE_TTL: float = 3600.0  # 1 hour
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -87,11 +90,22 @@ class ModelLoader:
             log.error("Error loading embedding model", error = str(e))
             raise DocumentPortalException(f"Failed to load embedding model: {str(e)}")
 
+    def invalidate_llm_cache(self):
+        """Clear the cached LLM instance (e.g., after auth failure)."""
+        ModelLoader._llm_cache = None
+        ModelLoader._llm_cache_time = 0.0
+        log.info("LLM cache invalidated")
+
     def load_llm(self):
         """Load and Return the LLM Model with priority: OpenAI → Gemini → Groq"""
 
+        # Return cached instance if still within TTL
         if ModelLoader._llm_cache is not None:
-            return ModelLoader._llm_cache
+            elapsed = time.time() - ModelLoader._llm_cache_time
+            if elapsed < ModelLoader._LLM_CACHE_TTL:
+                return ModelLoader._llm_cache
+            log.info("LLM cache expired, reloading", elapsed_s=round(elapsed))
+            ModelLoader._llm_cache = None
 
         llm_block = self.config["llm"]
 
@@ -131,6 +145,7 @@ class ModelLoader:
                     )
                     log.info("Loaded LLM successfully", class_name="ChatOpenAI")
                     ModelLoader._llm_cache = llm
+                    ModelLoader._llm_cache_time = time.time()
                     return llm
 
                 elif provider == "google":
@@ -141,6 +156,7 @@ class ModelLoader:
                     )
                     log.info("Loaded LLM successfully", class_name="ChatGoogleGenerativeAI")
                     ModelLoader._llm_cache = llm
+                    ModelLoader._llm_cache_time = time.time()
                     return llm
                 
                 elif provider == "groq":
@@ -150,6 +166,7 @@ class ModelLoader:
                     )
                     log.info("Loaded LLM successfully", class_name="ChatGroq")
                     ModelLoader._llm_cache = llm
+                    ModelLoader._llm_cache_time = time.time()
                     return llm
 
             except Exception as e:

@@ -36,7 +36,12 @@ async def http_exception_handler(request: Request, exc: Exception):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan (startup and shutdown events)."""
-    # Startup
+    # Startup — validate required config before accepting requests
+    try:
+        settings.validate_required_settings()
+    except ValueError as e:
+        _LOG.error("Configuration validation failed", error=str(e))
+        raise
     _LOG.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     _LOG.info(f"Environment: debug={settings.DEBUG}")
     

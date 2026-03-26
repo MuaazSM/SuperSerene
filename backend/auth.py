@@ -11,13 +11,14 @@ from starlette.responses import RedirectResponse
 from db.mongo import get_mongo
 from db.repositories.user_repository import UserRepository
 from logger.custom_logger import CustomLogger
+from config import settings
 
 _LOG = CustomLogger().get_logger(__name__)
 
-# JWT Configuration
-JWT_SECRET = os.getenv("OAUTH_JWT_SECRET", "your-secret-key-change-in-production")
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRY_HOURS = 24
+# JWT Configuration — single source of truth from config.py
+JWT_SECRET = settings.JWT_SECRET
+JWT_ALGORITHM = settings.JWT_ALGORITHM
+JWT_EXPIRY_HOURS = settings.JWT_EXPIRATION_HOURS
 
 # OAuth Configuration
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
