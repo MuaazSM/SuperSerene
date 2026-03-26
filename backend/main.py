@@ -104,7 +104,8 @@ def create_app() -> FastAPI:
     # Register routers
     from api import collab
     from api.v1 import auth, journal, chat, analytics, rag, exercises, safety, voice
-    
+    from screening.router import router as screening_router
+
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(journal.router, prefix="/api/v1/journal", tags=["journal"])
     app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
     app.include_router(exercises.router, prefix="/api/v1/exercises", tags=["exercises"])
     app.include_router(safety.router, prefix="/api/v1/safety", tags=["safety"])
     app.include_router(voice.router, prefix="/api/v1", tags=["voice"])
+    app.include_router(screening_router, prefix="/api/v1/screening", tags=["screening"])
     app.include_router(collab.router)
 
     return app
