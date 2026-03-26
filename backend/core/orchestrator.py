@@ -16,6 +16,7 @@ from utils.web_search import WebSearch
 from core.journal_analyzer import analyze_entry
 from core.safety_checker import classify_risk, escalation_message
 from core.coach import coach_question
+from services.guardian_service import should_notify, send_notification
 from db.mongo import get_mongo
 from utils.model_loader import ModelLoader
 
@@ -983,6 +984,21 @@ class Orchestrator:
                     text=message,
                 ),
             )
+
+            # Guardian notification for minors (fire-and-forget)
+            try:
+                safety_result = classify_risk(message, llm=None)
+                risk_band = safety_result.get("risk_band", "green")
+                if should_notify(user_id, risk_band):
+                    send_notification(
+                        user_id=user_id,
+                        event_type="chat_crisis_detection",
+                        severity=risk_band,
+                        summary="Real-time safety monitoring detected elevated risk during chat.",
+                    )
+                    self.log.info("Guardian notified", user_id=user_id, risk_band=risk_band)
+            except Exception as e:
+                self.log.warning("Guardian notification check failed", error=str(e))
 
             # Generate response based on mode
             if mode == "weekly":

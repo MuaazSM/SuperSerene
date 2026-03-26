@@ -28,11 +28,17 @@ export function SignupForm({
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [age, setAge] = useState("")
+  const [guardianEmail, setGuardianEmail] = useState("")
+  const [guardianName, setGuardianName] = useState("")
+  const needsGuardian = age !== "" && parseInt(age) < 16
   const [errors, setErrors] = useState<{
     name?: string
     email?: string
     password?: string
     confirmPassword?: string
+    age?: string
+    guardianEmail?: string
   }>({})
 
   const validateForm = () => {
@@ -65,6 +71,16 @@ export function SignupForm({
       newErrors.confirmPassword = "Passwords do not match"
     }
 
+    if (age && parseInt(age) < 13) {
+      newErrors.age = "You must be at least 13 to use SuperSerene"
+    }
+
+    if (needsGuardian && !guardianEmail) {
+      newErrors.guardianEmail = "Guardian email is required for users under 16"
+    } else if (needsGuardian && guardianEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guardianEmail)) {
+      newErrors.guardianEmail = "Please enter a valid email"
+    }
+
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -82,7 +98,13 @@ export function SignupForm({
       const response = await fetch(`${apiUrl}/api/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          ...(age ? { age: parseInt(age) } : {}),
+          ...(needsGuardian && guardianEmail ? { guardian_email: guardianEmail, guardian_name: guardianName || "Parent/Guardian" } : {}),
+        }),
       })
 
       if (!response.ok) {
@@ -259,6 +281,67 @@ export function SignupForm({
                     </p>
                   )}
                 </div>
+
+                {/* Age */}
+                <div className="grid gap-3">
+                  <Label htmlFor="age">Age</Label>
+                  <Input
+                    id="age"
+                    type="number"
+                    min={13}
+                    max={100}
+                    placeholder="Your age"
+                    value={age}
+                    onChange={(e) => {
+                      setAge(e.target.value)
+                      if (errors.age) setErrors({ ...errors, age: undefined })
+                    }}
+                    className={cn(
+                      "focus-visible:ring-2 focus-visible:ring-primary",
+                      errors.age && "border-red-500"
+                    )}
+                  />
+                  {errors.age && (
+                    <p className="text-sm text-red-500">{errors.age}</p>
+                  )}
+                </div>
+
+                {/* Guardian (shown only for under 16) */}
+                {needsGuardian && (
+                  <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4 space-y-3">
+                    <p className="text-sm text-yellow-300">
+                      Because you&apos;re under 16, we need a parent or guardian&apos;s email.
+                      They&apos;ll only be contacted if our system detects you may need urgent help.
+                    </p>
+                    <div className="grid gap-2">
+                      <Label htmlFor="guardian-name">Guardian Name</Label>
+                      <Input
+                        id="guardian-name"
+                        placeholder="Parent or guardian's name"
+                        value={guardianName}
+                        onChange={(e) => setGuardianName(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="guardian-email">Guardian Email *</Label>
+                      <Input
+                        id="guardian-email"
+                        type="email"
+                        placeholder="parent@example.com"
+                        value={guardianEmail}
+                        onChange={(e) => {
+                          setGuardianEmail(e.target.value)
+                          if (errors.guardianEmail) setErrors({ ...errors, guardianEmail: undefined })
+                        }}
+                        required
+                        className={cn(errors.guardianEmail && "border-red-500")}
+                      />
+                      {errors.guardianEmail && (
+                        <p className="text-sm text-red-500">{errors.guardianEmail}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Submit button */}
                 <div className="flex flex-col gap-3">

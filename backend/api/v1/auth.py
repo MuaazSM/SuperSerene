@@ -33,6 +33,9 @@ class SignupRequest(BaseModel):
     name: str
     email: str
     password: str
+    age: int | None = None
+    guardian_email: str | None = None
+    guardian_name: str | None = None
 
 
 class AuthResponse(BaseModel):
@@ -113,11 +116,30 @@ async def signup(
         HTTPException: 400 if validation fails, 409 if email exists, 500 on error
     """
     try:
+        # Require guardian email for users under 16
+        if request.age is not None and request.age < 16 and not request.guardian_email:
+            raise ValueError("Guardian email is required for users under 16")
+
         result = await service.signup(
             name=request.name,
             email=request.email,
             password=request.password,
+            age=request.age,
         )
+
+        # Register guardian if provided
+        if request.guardian_email and request.age is not None and request.age < 16:
+            try:
+                from services.guardian_service import register_guardian
+                register_guardian(
+                    user_id=result["user_id"],
+                    guardian_email=request.guardian_email,
+                    guardian_name=request.guardian_name or "Parent/Guardian",
+                    relationship="parent",
+                )
+            except Exception as ge:
+                _LOG.warning("Guardian registration during signup failed", error=str(ge))
+
         return AuthResponse(**result)
 
     except ValueError as e:

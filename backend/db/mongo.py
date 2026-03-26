@@ -200,6 +200,32 @@ class MongoDB:
             name="safety_events_ttl"
         )
         
+        # GUARDIANS COLLECTION
+        self.guardians: Collection = self.db.guardians
+
+        self._create_index_safe(self.guardians, "user_id", unique=True, name="guardian_user_id_unique")
+        self._create_index_safe(self.guardians, "verification_token", name="guardian_token_idx")
+        self._create_index_safe(self.guardians, "guardian_email", name="guardian_email_idx")
+
+        # AUDIT LOG COLLECTION
+        self.audit_log: Collection = self.db.audit_log
+
+        self._create_index_safe(
+            self.audit_log,
+            [("user_id", ASCENDING), ("timestamp", DESCENDING)],
+            name="user_audit_by_date"
+        )
+        self._create_index_safe(self.audit_log, "timestamp", name="audit_timestamp_idx")
+
+        # SCREENING RESULTS COLLECTION
+        self.screening_results: Collection = self.db.screening_results
+
+        self._create_index_safe(
+            self.screening_results,
+            [("user_id", ASCENDING), ("timestamp", DESCENDING)],
+            name="user_screening_by_date"
+        )
+
         _LOG.info("MongoDB collections and indexes initialized")
 
     def _run_schema_migrations(self):

@@ -53,7 +53,7 @@ class AuthService(BaseService):
             "name": user.get("name", ""),
         }
 
-    async def signup(self, name: str, email: str, password: str) -> Dict[str, str]:
+    async def signup(self, name: str, email: str, password: str, age: int | None = None) -> Dict[str, str]:
         """Register a new user and return JWT + profile."""
         users = UserRepository(self.db)
 
@@ -84,6 +84,17 @@ class AuthService(BaseService):
             email=email,
             hashed_password=hash_password(password_truncated),
         )
+
+        # Store age if provided
+        if age is not None:
+            try:
+                from db.mongo import get_mongo
+                get_mongo().db.users.update_one(
+                    {"user_id": doc.get("user_id")},
+                    {"$set": {"age": age}},
+                )
+            except Exception:
+                pass
 
         token = create_jwt_token(doc)
         self.log_info("User signup", email=email)

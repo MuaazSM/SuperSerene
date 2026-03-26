@@ -85,6 +85,14 @@ class Settings(BaseSettings):
     EPISODIC_MEMORY_TTL_DAYS: int = 30
     ANALYTICS_AGGREGATION_DAYS: int = 30
 
+    # SMTP (guardian notifications)
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_USE_TLS: bool = True
+
     # Additional Services (legacy support)
     QDRANT_API_KEY: Optional[str] = None
     ASSEMBLY_AI_API_KEY: Optional[str] = None
