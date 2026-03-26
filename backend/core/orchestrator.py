@@ -265,7 +265,8 @@ class ContextAgent:
         k: int = None,
         adaptive: bool = True,
         use_hybrid: bool = True,
-        use_reranker: bool = True
+        use_reranker: bool = True,
+        _depth: int = 0
     ) -> Dict[str, Any]:
         """
         Hybrid retrieval (BM25 + vector) with optional reranking.
@@ -390,9 +391,9 @@ class ContextAgent:
                 confidence = max(confidence, 0.5 if passages else confidence)
                 self.log.info("Web search injected context", results=len(web_results), method=method)
         # Adaptive depth: if confidence low, expand search
-        if adaptive and confidence < 0.4 and k < 12:
+        if adaptive and confidence < 0.4 and k < 12 and _depth < 1:
             self.log.info("Low confidence; expanding search depth", current_k=k, new_k=min(12, k * 2))
-            return self.retrieve(query, session_id, k=min(12, k * 2), adaptive=False, use_hybrid=use_hybrid, use_reranker=use_reranker)
+            return self.retrieve(query, session_id, k=min(12, k * 2), adaptive=False, use_hybrid=use_hybrid, use_reranker=use_reranker, _depth=_depth + 1)
         return {
             "passages": passages,
             "citations": citations,
@@ -487,8 +488,12 @@ class InsightAgent:
             "motivation": "What's one small thing you could do in the next five minutes toward your goal?",
         }
         question = facet_hooks.get(facet, "What part of this feels most pressing to you right now?")
-        snippet = message[:80].strip() if message else "that"
-        return f"Thank you for sharing about '{snippet}'. {question}"
+        # Extract a meaningful phrase rather than raw truncation
+        words = message.split()
+        if len(words) > 3:
+            key_phrase = " ".join(words[:8])
+            return f"I hear you — what you're describing sounds important. {question}"
+        return f"Thanks for opening up. {question}"
     
     def _is_generic_response(self, text: str) -> bool:
         """Check if response is one of the forbidden generic phrases."""

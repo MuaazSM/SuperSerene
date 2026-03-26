@@ -1,5 +1,6 @@
 import os
 import uuid
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from pymongo import MongoClient, ASCENDING, DESCENDING, TEXT
@@ -147,7 +148,7 @@ class MongoDB:
         # TTL for episodic memory
         self._create_index_safe(
             self.messages,
-            "expireAt",
+            "expires_at",
             expireAfterSeconds=0,
             name="episodic_memory_ttl"
         )
@@ -194,7 +195,7 @@ class MongoDB:
         # TTL for safety events
         self._create_index_safe(
             self.crisis_events,
-            "expireAt",
+            "expires_at",
             expireAfterSeconds=0,
             name="safety_events_ttl"
         )
@@ -202,55 +203,77 @@ class MongoDB:
         _LOG.info("MongoDB collections and indexes initialized")
 
     def _run_schema_migrations(self):
-        """Run schema migrations to ensure data consistency."""
+        """Run schema migrations only if not already applied."""
         try:
-            # Ensure timestamps
-            missing_ts = self.messages.count_documents({"timestamp": {"$exists": False}})
-            if missing_ts > 0:
-                _LOG.info("Migrating messages missing timestamp", count=missing_ts)
-                self.messages.update_many(
-                    {"timestamp": {"$exists": False}},
-                    {"$set": {"timestamp": datetime.now(timezone.utc)}}
+            migrations_coll = self.db._migrations
+
+            def _has_run(migration_id: str) -> bool:
+                return migrations_coll.find_one({"_id": migration_id}) is not None
+
+            def _mark_done(migration_id: str):
+                migrations_coll.update_one(
+                    {"_id": migration_id},
+                    {"$set": {"applied_at": datetime.now(timezone.utc)}},
+                    upsert=True
                 )
-            
-            # Ensure sessions have created_at
-            missing_ca = self.sessions.count_documents({"created_at": {"$exists": False}})
-            if missing_ca > 0:
-                _LOG.info("Migrating sessions missing created_at", count=missing_ca)
-                self.sessions.update_many(
-                    {"created_at": {"$exists": False}},
-                    {"$set": {"created_at": datetime.now(timezone.utc)}}
-                )
-            
-            # Ensure users have created_at
-            missing_user_created = self.users.count_documents({"created_at": {"$exists": False}})
-            if missing_user_created > 0:
-                _LOG.info("Migrating users missing created_at", count=missing_user_created)
-                self.users.update_many(
-                    {"created_at": {"$exists": False}},
-                    {"$set": {"created_at": datetime.now(timezone.utc)}}
-                )
-            
-            # Ensure crisis events have timestamp
-            missing_event_ts = self.crisis_events.count_documents({"timestamp": {"$exists": False}})
-            if missing_event_ts > 0:
-                _LOG.info("Migrating crisis events missing timestamp", count=missing_event_ts)
-                self.crisis_events.update_many(
-                    {"timestamp": {"$exists": False}},
-                    {"$set": {"timestamp": datetime.now(timezone.utc)}}
-                )
-            
-            # Ensure messages have metadata
-            missing_meta = self.messages.count_documents({"metadata": {"$exists": False}})
-            if missing_meta > 0:
-                _LOG.info("Migrating messages missing metadata", count=missing_meta)
-                self.messages.update_many(
-                    {"metadata": {"$exists": False}},
-                    {"$set": {"metadata": {}}}
-                )
-            
+
+            # Migration 1: Ensure timestamps on messages
+            if not _has_run("001_message_timestamps"):
+                missing_ts = self.messages.count_documents({"timestamp": {"$exists": False}})
+                if missing_ts > 0:
+                    _LOG.info("Migrating messages missing timestamp", count=missing_ts)
+                    self.messages.update_many(
+                        {"timestamp": {"$exists": False}},
+                        {"$set": {"timestamp": datetime.now(timezone.utc)}}
+                    )
+                _mark_done("001_message_timestamps")
+
+            # Migration 2: Ensure sessions have created_at
+            if not _has_run("002_session_created_at"):
+                missing_ca = self.sessions.count_documents({"created_at": {"$exists": False}})
+                if missing_ca > 0:
+                    _LOG.info("Migrating sessions missing created_at", count=missing_ca)
+                    self.sessions.update_many(
+                        {"created_at": {"$exists": False}},
+                        {"$set": {"created_at": datetime.now(timezone.utc)}}
+                    )
+                _mark_done("002_session_created_at")
+
+            # Migration 3: Ensure users have created_at
+            if not _has_run("003_user_created_at"):
+                missing_user_created = self.users.count_documents({"created_at": {"$exists": False}})
+                if missing_user_created > 0:
+                    _LOG.info("Migrating users missing created_at", count=missing_user_created)
+                    self.users.update_many(
+                        {"created_at": {"$exists": False}},
+                        {"$set": {"created_at": datetime.now(timezone.utc)}}
+                    )
+                _mark_done("003_user_created_at")
+
+            # Migration 4: Ensure crisis events have timestamp
+            if not _has_run("004_crisis_event_timestamps"):
+                missing_event_ts = self.crisis_events.count_documents({"timestamp": {"$exists": False}})
+                if missing_event_ts > 0:
+                    _LOG.info("Migrating crisis events missing timestamp", count=missing_event_ts)
+                    self.crisis_events.update_many(
+                        {"timestamp": {"$exists": False}},
+                        {"$set": {"timestamp": datetime.now(timezone.utc)}}
+                    )
+                _mark_done("004_crisis_event_timestamps")
+
+            # Migration 5: Ensure messages have metadata
+            if not _has_run("005_message_metadata"):
+                missing_meta = self.messages.count_documents({"metadata": {"$exists": False}})
+                if missing_meta > 0:
+                    _LOG.info("Migrating messages missing metadata", count=missing_meta)
+                    self.messages.update_many(
+                        {"metadata": {"$exists": False}},
+                        {"$set": {"metadata": {}}}
+                    )
+                _mark_done("005_message_metadata")
+
             _LOG.info("Schema migrations completed")
-            
+
         except Exception as e:
             _LOG.error("Schema migration failed", error=str(e))
     
@@ -456,12 +479,16 @@ class MongoDB:
 
 
 _mongo_instance: Optional[MongoDB] = None
+_mongo_lock = threading.Lock()
 
 
 def get_mongo() -> MongoDB:
     global _mongo_instance
     if _mongo_instance is None:
-        _mongo_instance = MongoDB()
+        with _mongo_lock:
+            # Double-check after acquiring lock
+            if _mongo_instance is None:
+                _mongo_instance = MongoDB()
     return _mongo_instance
 
 

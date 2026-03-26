@@ -1,5 +1,7 @@
 """Base repository class with common database patterns."""
 
+import asyncio
+from functools import partial
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from bson import ObjectId
@@ -50,7 +52,8 @@ class BaseRepository:
         """
         try:
             collection = self.get_collection()
-            return collection.find_one({"_id": ObjectId(doc_id)})
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, partial(collection.find_one, {"_id": ObjectId(doc_id)}))
         except Exception as e:
             self._logger.error(f"Error finding document by ID: {doc_id}", error=str(e))
             return None
@@ -74,8 +77,10 @@ class BaseRepository:
         try:
             collection = self.get_collection()
             filter_dict = filter_dict or {}
-            cursor = collection.find(filter_dict).limit(limit).skip(skip)
-            return list(cursor)
+            def _query():
+                return list(collection.find(filter_dict).limit(limit).skip(skip))
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, _query)
         except Exception as e:
             self._logger.error("Error finding documents", error=str(e))
             return []
@@ -96,7 +101,8 @@ class BaseRepository:
             collection = self.get_collection()
             data["created_at"] = datetime.utcnow()
             data["updated_at"] = datetime.utcnow()
-            result = collection.insert_one(data)
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, partial(collection.insert_one, data))
             return str(result.inserted_id)
         except Exception as e:
             self._logger.error("Error creating document", error=str(e))
@@ -115,10 +121,8 @@ class BaseRepository:
         try:
             collection = self.get_collection()
             updates["updated_at"] = datetime.utcnow()
-            result = collection.update_one(
-                {"_id": ObjectId(doc_id)},
-                {"$set": updates}
-            )
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, partial(collection.update_one, {"_id": ObjectId(doc_id)}, {"$set": updates}))
             return result.modified_count > 0
         except Exception as e:
             self._logger.error(f"Error updating document: {doc_id}", error=str(e))
@@ -135,7 +139,8 @@ class BaseRepository:
         """
         try:
             collection = self.get_collection()
-            result = collection.delete_one({"_id": ObjectId(doc_id)})
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, partial(collection.delete_one, {"_id": ObjectId(doc_id)}))
             return result.deleted_count > 0
         except Exception as e:
             self._logger.error(f"Error deleting document: {doc_id}", error=str(e))
@@ -153,7 +158,8 @@ class BaseRepository:
         try:
             collection = self.get_collection()
             filter_dict = filter_dict or {}
-            return collection.count_documents(filter_dict)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, partial(collection.count_documents, filter_dict))
         except Exception as e:
             self._logger.error("Error counting documents", error=str(e))
             return 0
@@ -169,7 +175,9 @@ class BaseRepository:
         """
         try:
             collection = self.get_collection()
-            return collection.find_one(filter_dict) is not None
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, partial(collection.find_one, filter_dict))
+            return result is not None
         except Exception as e:
             self._logger.error("Error checking document existence", error=str(e))
             return False

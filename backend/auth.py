@@ -45,8 +45,8 @@ oauth.register(
 def create_jwt_token(user_data: dict) -> str:
     """Create JWT token with user information."""
     payload = {
-        "sub": str(user_data["_id"]),  # subject (user ID) - convert ObjectId to string
-        "user_id": user_data.get("user_id"),  # Add user_id for convenience
+        "sub": user_data.get("user_id") or str(user_data["_id"]),  # prefer user_id (UUID), fallback to ObjectId
+        "user_id": user_data.get("user_id") or str(user_data["_id"]),  # ensure user_id is always set
         "email": user_data.get("email"),
         "name": user_data.get("name"),
         "role": user_data.get("role", "individual"),
@@ -193,7 +193,7 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)) 
     """Get current user information."""
     # Remove sensitive fields
     safe_user = {
-        "user_id": str(current_user["_id"]),
+        "user_id": current_user.get("user_id") or str(current_user["_id"]),
         "email": current_user.get("email"),
         "name": current_user.get("name"),
         "role": current_user.get("role"),

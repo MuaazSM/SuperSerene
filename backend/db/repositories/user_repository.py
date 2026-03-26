@@ -16,11 +16,17 @@ class UserRepository(BaseRepository):
         return self.get_collection().find_one({"email": email})
 
     async def find_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:  # type: ignore[override]
+        collection = self.get_collection()
+        # Try user_id field first (UUID string)
+        doc = collection.find_one({"user_id": user_id})
+        if doc:
+            return doc
+        # Fallback to _id (ObjectId)
         try:
             oid = ObjectId(user_id)
+            return collection.find_one({"_id": oid})
         except Exception:
             return None
-        return self.get_collection().find_one({"_id": oid})
 
     async def create_user(self, name: str, email: str, hashed_password: str, role: str = "individual") -> Dict[str, Any]:
         from uuid import uuid4
@@ -41,22 +47,33 @@ class UserRepository(BaseRepository):
         return doc
 
     async def update_last_login(self, user_id: str) -> None:
+        collection = self.get_collection()
+        # Try user_id field first
+        res = collection.update_one({"user_id": user_id}, {"$set": {"last_login": datetime.now(timezone.utc)}})
+        if res.modified_count > 0:
+            return
+        # Fallback to _id
         try:
             oid = ObjectId(user_id)
+            collection.update_one({"_id": oid}, {"$set": {"last_login": datetime.now(timezone.utc)}})
         except Exception:
-            return None
-        self.get_collection().update_one({"_id": oid}, {"$set": {"last_login": datetime.now(timezone.utc)}})
-        return None
+            pass
 
     async def update_profile(self, user_id: str, updates: Dict[str, Any]) -> bool:
-        try:
-            oid = ObjectId(user_id)
-        except Exception:
-            return False
         allowed_fields = {"name", "bio", "strengths", "focus", "preferences", "metadata"}
         filtered = {k: v for k, v in updates.items() if k in allowed_fields}
         if not filtered:
             return False
         filtered["updated_at"] = datetime.now(timezone.utc)
-        res = self.get_collection().update_one({"_id": oid}, {"$set": filtered})
-        return bool(getattr(res, "modified_count", 0))
+        collection = self.get_collection()
+        # Try user_id field first
+        res = collection.update_one({"user_id": user_id}, {"$set": filtered})
+        if res.modified_count > 0:
+            return True
+        # Fallback to _id
+        try:
+            oid = ObjectId(user_id)
+            res = collection.update_one({"_id": oid}, {"$set": filtered})
+            return bool(getattr(res, "modified_count", 0))
+        except Exception:
+            return False

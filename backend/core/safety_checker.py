@@ -59,6 +59,18 @@ _FAREWELL = [
 
 _DESIRE_RE = re.compile(r"\bi (?:want|plan|intend|need)\b", re.I)
 
+# Recovery / context patterns that indicate non-crisis usage of flagged words
+_RECOVERY_PATTERNS = [
+    re.compile(r"\b(?:used to|no longer|don't|don't|not anymore|in the past|was|were)\b.*\b(?:hopeless|worthless|suicidal|die|kill)\b", re.I),
+    re.compile(r"\b(?:better now|getting better|improving|recovered|healing|moved on|overcame)\b", re.I),
+    re.compile(r"\b(?:jumped to|jump(?:ed|ing)?\s+(?:to a|at the|into)\s+(?:conclusion|chance|opportunity))\b", re.I),
+    re.compile(r"\b(?:cut(?:ting)?\s+(?:class|corners|costs|short|off|out|back|in line|the cord))\b", re.I),
+    re.compile(r"\b(?:hang(?:ing)?\s+(?:out|on|in there|around|with|up))\b", re.I),
+    re.compile(r"\b(?:shoot(?:ing)?\s+(?:for|the breeze|hoops|a message|an email))\b", re.I),
+    re.compile(r"\b(?:train(?:ing|ed)?\s+(?:for|at|with|hard))\b", re.I),
+    re.compile(r"\b(?:bridge\s+(?:the gap|between))\b", re.I),
+]
+
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -123,7 +135,13 @@ def _keyword_risk(text: str) -> Dict[str, Any]:
     
     # Escalate if strong intent OR (method + desire/intent context)
     desire_hit = bool(_DESIRE_RE.search(t))
-    
+
+    # Check for recovery/context patterns that indicate non-crisis usage
+    is_recovery = any(p.search(t) for p in _RECOVERY_PATTERNS)
+    if is_recovery and "strong_intent" not in reasons:
+        # Recovery context detected — downgrade keyword signals
+        return {"flagged": False, "reasons": reasons, "context": "recovery_narrative"}
+
     # Decision logic
     if "strong_intent" in reasons:
         return {"flagged": True, "reasons": reasons}
@@ -293,10 +311,17 @@ def classify_risk(
             signals["llm"] = None
     
     # If keywords flag risk, override to ESCALATE (keywords act as veto)
+    # UNLESS the LLM explicitly says SAFE and recovery context is detected
     if kw_flag:
-        label = "ESCALATE"
-        _LOG.info("Keywords flagged risk; overriding to ESCALATE", 
-                 reasons=keyword_result.get("reasons"))
+        llm_verdict = signals.get("llm")
+        keyword_context = keyword_result.get("context", "")
+        if llm_verdict == "SAFE" and keyword_context == "recovery_narrative":
+            _LOG.info("Keywords flagged but LLM says SAFE with recovery context; trusting LLM",
+                     reasons=keyword_result.get("reasons"))
+        else:
+            label = "ESCALATE"
+            _LOG.info("Keywords flagged risk; overriding to ESCALATE",
+                     reasons=keyword_result.get("reasons"))
     
     # Compute risk score and band
     risk_score = _compute_risk_score(label, keyword_result, text)

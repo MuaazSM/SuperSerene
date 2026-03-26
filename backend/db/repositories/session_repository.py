@@ -26,26 +26,52 @@ class SessionRepository(BaseRepository):
         doc["_id"] = result.inserted_id
         return doc
 
+    async def find_by_id(self, session_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            collection = self.get_collection()
+            # Sessions use string session_id, not ObjectId _id
+            doc = collection.find_one({"session_id": session_id})
+            if doc:
+                return doc
+            # Fallback to _id for backward compatibility
+            try:
+                return collection.find_one({"_id": ObjectId(session_id)})
+            except Exception:
+                return None
+        except Exception as e:
+            self._logger.error(f"Error finding session: {session_id}", error=str(e))
+            return None
+
     async def list_sessions(self, user_id: str, limit: int, skip: int) -> List[Dict[str, Any]]:
         cursor = self.get_collection().find({"user_id": user_id}).sort("created_at", -1).skip(skip).limit(limit)
         return list(cursor)
 
     async def update_session(self, session_id: str, updates: Dict[str, Any]) -> bool:
+        updates["updated_at"] = datetime.now(timezone.utc)
+        # Try session_id field first
+        res = self.get_collection().update_one({"session_id": session_id}, {"$set": updates})
+        if res.modified_count > 0:
+            return True
+        # Fallback to _id
         try:
             oid = ObjectId(session_id)
+            res = self.get_collection().update_one({"_id": oid}, {"$set": updates})
+            return bool(getattr(res, "modified_count", 0))
         except Exception:
             return False
-        updates["updated_at"] = datetime.now(timezone.utc)
-        res = self.get_collection().update_one({"_id": oid}, {"$set": updates})
-        return bool(getattr(res, "modified_count", 0))
 
     async def delete_session(self, session_id: str) -> bool:
+        # Try session_id field first
+        res = self.get_collection().delete_one({"session_id": session_id})
+        if res.deleted_count > 0:
+            return True
+        # Fallback to _id
         try:
             oid = ObjectId(session_id)
+            res = self.get_collection().delete_one({"_id": oid})
+            return bool(getattr(res, "deleted_count", 0))
         except Exception:
             return False
-        res = self.get_collection().delete_one({"_id": oid})
-        return bool(getattr(res, "deleted_count", 0))
 
 
 class MessageRepository(BaseRepository):

@@ -3,7 +3,7 @@ import sys
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, Any
+from typing import Dict, List, Any
 
 from dotenv import load_dotenv  # type: ignore
 from langchain_community.document_loaders import PyPDFLoader  # type: ignore
@@ -126,6 +126,7 @@ class ConversationalRAG:
                     self.llm = None
             self.contextualize_prompt = PROMPT_REGISTRY["contextualize_question"]
             self.qa_prompt = PROMPT_REGISTRY["context_qa"]
+            self._session_histories: Dict[str, ChatMessageHistory] = {}
 
             self.log.info("ConversationalRAG initialized", faiss_dir=faiss_dir)
         except Exception as e:
@@ -198,6 +199,49 @@ class ConversationalRAG:
         except Exception as e:
             self.log.error("Error in search", error=str(e))
             return []
+
+    def _get_session_history(self, session_id: str) -> ChatMessageHistory:
+        if session_id not in self._session_histories:
+            self._session_histories[session_id] = ChatMessageHistory()
+        return self._session_histories[session_id]
+
+    def query_with_history(self, retriever: Any, query: str, session_id: str, k: int = 5) -> List[str]:
+        """Search with conversation-aware query contextualization."""
+        try:
+            history = self._get_session_history(session_id)
+            messages = history.messages[-10:]  # last 5 turns (user+ai pairs)
+
+            # Contextualize the query if we have history
+            contextualized_query = query
+            if messages and self.llm and self.contextualize_prompt:
+                try:
+                    from langchain_core.messages import HumanMessage
+                    formatted = self.contextualize_prompt.format_messages(
+                        chat_history=messages,
+                        input=query
+                    )
+                    resp = self.llm.invoke(formatted)
+                    contextualized_query = getattr(resp, "content", None) or str(resp)
+                    contextualized_query = contextualized_query.strip()
+                    if not contextualized_query:
+                        contextualized_query = query
+                    self.log.info("Query contextualized", original=query[:50], contextualized=contextualized_query[:50])
+                except Exception as e:
+                    self.log.warning("Contextualization failed, using original query", error=str(e))
+                    contextualized_query = query
+
+            # Search with contextualized query
+            chunks = self.search(retriever, contextualized_query, k=k)
+
+            # Store in history
+            from langchain_core.messages import HumanMessage, AIMessage
+            history.add_user_message(query)
+            history.add_ai_message(f"Retrieved {len(chunks)} relevant passages")
+
+            return chunks
+        except Exception as e:
+            self.log.error("query_with_history failed", error=str(e))
+            return self.search(retriever, query, k=k)
 
     def synthesize_exercise(self, chunks: List[str], target_facets: List[str], 
                            context_tags: List[str], duration_hint: str) -> dict:
