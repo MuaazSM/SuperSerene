@@ -148,7 +148,9 @@ async def google_callback(request: Request) -> RedirectResponse:
         
         if not user:
             # Create new user with default role
+            from uuid import uuid4
             user_doc = {
+                "user_id": str(uuid4()),
                 "email": email,
                 "name": name,
                 "role": "individual",  # Default role
@@ -166,7 +168,7 @@ async def google_callback(request: Request) -> RedirectResponse:
                 "created_at": datetime.utcnow(),
                 "last_login": datetime.utcnow()
             }
-            
+
             result = users_repo.get_collection().insert_one(user_doc)
             user_doc["_id"] = result.inserted_id
             user = user_doc
