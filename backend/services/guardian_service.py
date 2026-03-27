@@ -126,6 +126,35 @@ def register_guardian(
     return {"user_id": user_id, "guardian_email": guardian_email, "verification_token": token}
 
 
+def record_consent(
+    user_id: str,
+    guardian_email: str,
+    consent_given: bool = True,
+    consent_method: str = "guardian_email_verification",
+    ip_address: Optional[str] = None,
+) -> None:
+    """Record a parental consent event in the consent_records collection.
+
+    Idempotent: a DuplicateKeyError on (user_id) is silently ignored so
+    re-verification emails don't create duplicate records.
+    """
+    from pymongo.errors import DuplicateKeyError
+
+    mongo = get_mongo()
+    try:
+        mongo.db.consent_records.insert_one({
+            "user_id": user_id,
+            "guardian_email": guardian_email,
+            "consent_given": consent_given,
+            "consent_method": consent_method,
+            "timestamp": datetime.now(timezone.utc),
+            "ip_address": ip_address,
+        })
+        _LOG.info("Consent recorded", user_id=user_id)
+    except DuplicateKeyError:
+        _LOG.info("Consent already recorded (idempotent)", user_id=user_id)
+
+
 def verify_guardian(token: str) -> bool:
     """Mark guardian as verified.  Returns True if found and updated."""
     mongo = get_mongo()
@@ -135,6 +164,17 @@ def verify_guardian(token: str) -> bool:
     )
     if result.modified_count > 0:
         _LOG.info("Guardian verified", token=token[:8])
+        doc = mongo.db.guardians.find_one({"verification_token": token})
+        if doc:
+            try:
+                record_consent(
+                    user_id=doc["user_id"],
+                    guardian_email=doc["guardian_email"],
+                    consent_given=True,
+                    consent_method="guardian_email_verification",
+                )
+            except Exception as e:
+                _LOG.warning("record_consent failed", error=str(e))
         return True
     _LOG.warning("Guardian verification failed — token not found or already verified", token=token[:8])
     return False

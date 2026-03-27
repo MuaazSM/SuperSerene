@@ -521,7 +521,8 @@ class InsightAgent:
         message: str,
         context: List[str],
         session_id: str,
-        facet: str = "self_awareness"
+        facet: str = "self_awareness",
+        user_id: str = "",
     ) -> Dict[str, Any]:
         """
         Generate coaching response with tasks and citations.
@@ -541,6 +542,13 @@ class InsightAgent:
             try:
                 from langchain_core.messages import SystemMessage, HumanMessage
                 
+                _MINOR_ADDENDUM = (
+                    "\n\nIMPORTANT — this user is a minor (age 13-17). "
+                    "Keep all language age-appropriate. "
+                    "Avoid references to alcohol, substances, adult relationships, or self-harm. "
+                    "If the user expresses distress, encourage them to talk to a trusted adult or call a helpline."
+                )
+
                 system_prompt = (
                     "You are Ra, a calm and empathetic emotional wellness coach. "
                     "You combine warmth with practical insight.\n\n"
@@ -556,6 +564,13 @@ class InsightAgent:
                     "- Use short sentences and a conversational rhythm.\n"
                     f"- Current focus facet: {facet}\n"
                 )
+
+                try:
+                    from utils.age_utils import get_age_band
+                    if user_id and get_age_band(user_id) == "minor":
+                        system_prompt += _MINOR_ADDENDUM
+                except Exception:
+                    pass  # fail-open: skip addendum on any error
                 
                 user_prompt = f"User said: \"{message}\"\n"
                 if context_block:
@@ -1018,6 +1033,7 @@ class Orchestrator:
                         context=context["passages"],
                         session_id=session_id,
                         facet=facet,
+                        user_id=user_id,
                     )
                     if context["citations"]:
                         response["citations"] = context["citations"]

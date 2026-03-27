@@ -143,7 +143,7 @@ async def signup(
         return AuthResponse(**result)
 
     except ValueError as e:
-        code = status.HTTP_400_BAD_REQUEST if "password" in str(e).lower() or "required" in str(e).lower() else status.HTTP_409_CONFLICT
+        code = status.HTTP_400_BAD_REQUEST if "password" in str(e).lower() or "required" in str(e).lower() or "age" in str(e).lower() or "13" in str(e) else status.HTTP_409_CONFLICT
         raise HTTPException(status_code=code, detail=str(e))
     except Exception as e:
         _LOG.error("Signup failed", error=str(e))

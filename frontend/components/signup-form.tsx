@@ -31,6 +31,7 @@ export function SignupForm({
   const [age, setAge] = useState("")
   const [guardianEmail, setGuardianEmail] = useState("")
   const [guardianName, setGuardianName] = useState("")
+  const [consentChecked, setConsentChecked] = useState(false)
   const needsGuardian = age !== "" && parseInt(age) < 16
   const [errors, setErrors] = useState<{
     name?: string
@@ -79,6 +80,10 @@ export function SignupForm({
       newErrors.guardianEmail = "Guardian email is required for users under 16"
     } else if (needsGuardian && guardianEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guardianEmail)) {
       newErrors.guardianEmail = "Please enter a valid email"
+    }
+
+    if (needsGuardian && !consentChecked) {
+      newErrors.guardianEmail = newErrors.guardianEmail || "You must confirm guardian consent to continue"
     }
 
     setErrors(newErrors)
@@ -339,6 +344,18 @@ export function SignupForm({
                       {errors.guardianEmail && (
                         <p className="text-sm text-red-500">{errors.guardianEmail}</p>
                       )}
+                    </div>
+                    <div className="flex items-start gap-2 pt-1">
+                      <input
+                        id="guardian-consent"
+                        type="checkbox"
+                        checked={consentChecked}
+                        onChange={(e) => setConsentChecked(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                      />
+                      <label htmlFor="guardian-consent" className="text-sm text-yellow-300 leading-snug">
+                        I confirm that a parent or guardian has given consent for this account.
+                      </label>
                     </div>
                   </div>
                 )}

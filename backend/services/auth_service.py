@@ -62,6 +62,9 @@ class AuthService(BaseService):
         if len(password) < 8:
             raise ValueError("Password must be at least 8 characters")
 
+        if age is not None and age < 13:
+            raise ValueError("Users must be at least 13 years old to register.")
+
         # Truncate password if needed for bcrypt (max 72 bytes)
         password_truncated = password[:72]
 

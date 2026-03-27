@@ -7,7 +7,7 @@ safety (no message content leaked).
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 from services.guardian_service import (
     should_notify,
     _smtp_config,
@@ -117,3 +117,91 @@ class TestNotificationPrivacy:
         # But severity and recommended action SHOULD be present
         assert "High" in email_html or "Moderate" in email_html or "red" in email_html
         assert "SuperSerene Alert" in mock_email.call_args[0][1]  # Subject
+
+
+# ---------------------------------------------------------------------------
+# Gap 2: Parental consent recording
+# ---------------------------------------------------------------------------
+
+class TestRecordConsent:
+    """record_consent() inserts into consent_records and is idempotent."""
+
+    @patch("services.guardian_service.get_mongo")
+    def test_record_consent_inserts_document(self, mock_get_mongo):
+        from services.guardian_service import record_consent
+
+        mock_mongo = MagicMock()
+        mock_get_mongo.return_value = mock_mongo
+
+        record_consent(
+            user_id="user_abc",
+            guardian_email="parent@test.com",
+            consent_given=True,
+            consent_method="guardian_email_verification",
+        )
+
+        mock_mongo.db.consent_records.insert_one.assert_called_once()
+        inserted = mock_mongo.db.consent_records.insert_one.call_args[0][0]
+        assert inserted["user_id"] == "user_abc"
+        assert inserted["guardian_email"] == "parent@test.com"
+        assert inserted["consent_given"] is True
+        assert inserted["consent_method"] == "guardian_email_verification"
+        assert "timestamp" in inserted
+
+    @patch("services.guardian_service.get_mongo")
+    def test_record_consent_idempotent_on_duplicate(self, mock_get_mongo):
+        from pymongo.errors import DuplicateKeyError
+        from services.guardian_service import record_consent
+
+        mock_mongo = MagicMock()
+        mock_mongo.db.consent_records.insert_one.side_effect = DuplicateKeyError("duplicate")
+        mock_get_mongo.return_value = mock_mongo
+
+        # Should not raise
+        record_consent(user_id="user_abc", guardian_email="parent@test.com")
+
+
+class TestVerifyGuardianRecordsConsent:
+    """verify_guardian() calls record_consent() after marking verified."""
+
+    @patch("services.guardian_service.record_consent")
+    @patch("services.guardian_service.get_mongo")
+    def test_verify_guardian_calls_record_consent(self, mock_get_mongo, mock_record_consent):
+        from services.guardian_service import verify_guardian
+
+        mock_mongo = MagicMock()
+        mock_result = MagicMock()
+        mock_result.modified_count = 1
+        mock_mongo.db.guardians.update_one.return_value = mock_result
+        mock_mongo.db.guardians.find_one.return_value = {
+            "user_id": "user_abc",
+            "guardian_email": "parent@test.com",
+            "verification_token": "tok123",
+        }
+        mock_get_mongo.return_value = mock_mongo
+
+        result = verify_guardian("tok123")
+
+        assert result is True
+        mock_record_consent.assert_called_once_with(
+            user_id="user_abc",
+            guardian_email="parent@test.com",
+            consent_given=True,
+            consent_method="guardian_email_verification",
+        )
+
+    @patch("services.guardian_service.record_consent")
+    @patch("services.guardian_service.get_mongo")
+    def test_verify_guardian_no_consent_on_already_verified(self, mock_get_mongo, mock_record_consent):
+        from services.guardian_service import verify_guardian
+
+        mock_mongo = MagicMock()
+        mock_result = MagicMock()
+        mock_result.modified_count = 0  # already verified — nothing updated
+        mock_mongo.db.guardians.update_one.return_value = mock_result
+        mock_get_mongo.return_value = mock_mongo
+
+        result = verify_guardian("tok_stale")
+
+        assert result is False
+        mock_record_consent.assert_not_called()
