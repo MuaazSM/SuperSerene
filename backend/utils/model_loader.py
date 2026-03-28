@@ -109,26 +109,26 @@ class ModelLoader:
 
         llm_block = self.config["llm"]
 
-        # Priority order: OpenAI first, then Google, then Groq
+        # Priority order: Groq first (free quota available), then Gemini, then OpenAI
         provider_priority = []
-        if self.api_keys.get("OPENAI_API_KEY"):
-            provider_priority.append("openai")
-        if self.api_keys.get("GOOGLE_API_KEY"):
-            provider_priority.append("google")
         if self.api_keys.get("GROQ_API_KEY"):
             provider_priority.append("groq")
+        if self.api_keys.get("GOOGLE_API_KEY"):
+            provider_priority.append("google")
+        if self.api_keys.get("OPENAI_API_KEY"):
+            provider_priority.append("openai")
 
         if not provider_priority:
             log.error("No LLM API keys available")
             raise ValueError("No LLM API keys configured")
 
-        # Try each provider in priority order
+        # Try each provider in priority order, with a validation ping
         last_error = None
         for provider_key in provider_priority:
             try:
                 if provider_key not in llm_block:
                     continue
-                
+
                 llm_config = llm_block[provider_key]
                 provider = llm_config.get("provider")
                 model_name = llm_config.get("model_name")
@@ -141,33 +141,32 @@ class ModelLoader:
                     llm = ChatOpenAI(
                         model=model_name,
                         temperature=temperature,
-                        max_tokens=max_tokens
+                        max_tokens=max_tokens,
+                        request_timeout=10,
                     )
-                    log.info("Loaded LLM successfully", class_name="ChatOpenAI")
-                    ModelLoader._llm_cache = llm
-                    ModelLoader._llm_cache_time = time.time()
-                    return llm
-
                 elif provider == "google":
                     llm = ChatGoogleGenerativeAI(
                         model=model_name,
                         temperature=temperature,
-                        max_output_tokens=max_tokens
+                        max_output_tokens=max_tokens,
                     )
-                    log.info("Loaded LLM successfully", class_name="ChatGoogleGenerativeAI")
-                    ModelLoader._llm_cache = llm
-                    ModelLoader._llm_cache_time = time.time()
-                    return llm
-                
                 elif provider == "groq":
                     llm = ChatGroq(
                         model=model_name,
-                        temperature=temperature
+                        temperature=temperature,
+                        request_timeout=10,
                     )
-                    log.info("Loaded LLM successfully", class_name="ChatGroq")
-                    ModelLoader._llm_cache = llm
-                    ModelLoader._llm_cache_time = time.time()
-                    return llm
+                else:
+                    continue
+
+                # Validation ping — confirm key actually works before caching
+                from langchain_core.messages import HumanMessage
+                test_resp = llm.invoke([HumanMessage(content="hi")])
+                log.info("LLM validated successfully", provider=provider, class_name=llm.__class__.__name__)
+
+                ModelLoader._llm_cache = llm
+                ModelLoader._llm_cache_time = time.time()
+                return llm
 
             except Exception as e:
                 last_error = e

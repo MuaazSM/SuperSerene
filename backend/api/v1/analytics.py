@@ -15,7 +15,7 @@ Endpoints:
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional, Dict, Any
 
-from api.deps import get_current_user, get_db, get_orchestrator
+from api.deps import get_current_user, get_optional_current_user, get_db, get_orchestrator
 from services.analytics_service import AnalyticsService
 from logger.custom_logger import CustomLogger
 
@@ -43,11 +43,12 @@ async def get_checkin_questions(service: AnalyticsService = Depends(get_analytic
 @router.post("/checkin", tags=["analytics"])
 async def submit_checkin(
     payload: Dict[str, Any],
-    current_user: Dict = Depends(get_current_user),
     service: AnalyticsService = Depends(get_analytics_service),
+    current_user: Optional[Dict] = Depends(get_optional_current_user),
 ):
     try:
-        result = await service.submit_checkin(user_id=current_user.get("user_id"), payload=payload)
+        user_id = current_user.get("user_id") if current_user else payload.get("user_id", "anonymous")
+        result = await service.submit_checkin(user_id=user_id, payload=payload)
         return result
     except Exception as e:
         _LOG.error("Failed to submit check-in", error=str(e))
@@ -144,11 +145,11 @@ async def mood_timeline(
     user_id: Optional[str] = Query(None),
     session_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
-    current_user: Dict = Depends(get_current_user),
     service: AnalyticsService = Depends(get_analytics_service),
+    current_user: Optional[Dict] = Depends(get_optional_current_user),
 ):
     try:
-        lookup_user_id = user_id or current_user.get("user_id")
+        lookup_user_id = user_id or (current_user.get("user_id") if current_user else "anonymous")
         return await service.mood_timeline(user_id=lookup_user_id, session_id=session_id, limit=limit)
     except Exception as e:
         _LOG.error("Failed to compute mood timeline", error=str(e))

@@ -87,7 +87,18 @@ class MongoDB:
     
     def _setup_collections(self):
         """Create collections and indexes if they don't exist."""
-        
+
+        # Drop stale TTL indexes that used the old `expireAt` field name
+        for coll_name, idx_name in [("messages", "episodic_memory_ttl"), ("crisis_events", "safety_events_ttl")]:
+            try:
+                coll = self.db[coll_name]
+                existing = {idx["name"]: idx for idx in coll.list_indexes()}
+                if idx_name in existing and "expireAt" in str(existing[idx_name].get("key", {})):
+                    coll.drop_index(idx_name)
+                    _LOG.info("Dropped stale TTL index", collection=coll_name, index=idx_name)
+            except Exception:
+                pass
+
         # USERS COLLECTION
         self.users: Collection = self.db.users
         
@@ -231,7 +242,7 @@ class MongoDB:
     def _run_schema_migrations(self):
         """Run schema migrations only if not already applied."""
         try:
-            migrations_coll = self.db._migrations
+            migrations_coll = self.db['_migrations']
 
             def _has_run(migration_id: str) -> bool:
                 return migrations_coll.find_one({"_id": migration_id}) is not None

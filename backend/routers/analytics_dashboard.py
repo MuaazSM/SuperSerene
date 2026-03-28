@@ -29,7 +29,7 @@ router = APIRouter()
 
 @router.get("/timeline", tags=["analytics-dashboard"])
 async def timeline(
-    period: str = Query("month", regex="^(week|month|3months)$"),
+    period: str = Query("month", pattern="^(week|month|3months)$"),
     user=Depends(get_optional_current_user),
 ):
     user_id = user.get("user_id") if user else "anonymous"
@@ -82,7 +82,7 @@ async def trends(user=Depends(get_optional_current_user)):
 
 @router.get("/export", tags=["analytics-dashboard"])
 async def export_report(
-    period: str = Query("month", regex="^(week|month|3months)$"),
+    period: str = Query("month", pattern="^(week|month|3months)$"),
     user=Depends(get_current_user),
 ):
     user_id = user.get("user_id")

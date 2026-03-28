@@ -435,7 +435,7 @@ class InsightAgent:
 
         if any(w in msg_lower for w in ["hello", "hi", "hey"]):
             return (
-                "Welcome! I'm Ra, your wellness companion. "
+                "Welcome! I'm your SuperSerene wellness companion. "
                 "What's been on your mind today—anything weighing on you, "
                 "or something you'd like to explore together?"
             )
@@ -550,7 +550,7 @@ class InsightAgent:
                 )
 
                 system_prompt = (
-                    "You are Ra, a calm and empathetic emotional wellness coach. "
+                    "You are SuperSerene, a calm and empathetic emotional wellness coach. "
                     "You combine warmth with practical insight.\n\n"
                     "RESPONSE STRUCTURE (aim for 80-150 words):\n"
                     "1. Acknowledge what the user shared — reflect a SPECIFIC detail they mentioned.\n"

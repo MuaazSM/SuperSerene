@@ -250,7 +250,7 @@ class ApiClient {
           user_id: options?.user_id,
           generate_audio: options?.generate_audio,
         }),
-      }, 30000);
+      }, 60000);
     } catch (error) {
       console.error('Chat API error:', error);
       // Return a fallback response if backend is unavailable

@@ -57,7 +57,7 @@ def main():
         def paraphrase_for_message(msg: str) -> str:
             msg_lower = msg.lower().strip()
             if any(w in msg_lower for w in ["hello", "hi", "hey"]):
-                return "Welcome! I'm Ra. What's been the toughest part of today so far?"
+                return "Welcome! I'm your SuperSerene wellness coach. What's been the toughest part of today so far?"
             elif any(w in msg_lower for w in ["not much", "nothing", "idk", "dunno"]):
                 return "Sometimes it's hard to name what we feel. If you had to pick one word for today, what would it be?"
             elif any(w in msg_lower for w in ["sad", "down", "low", "depressed"]):
